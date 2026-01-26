@@ -643,6 +643,15 @@ async function main() {
 
             // Check if this row is a brief entry
             if (typeText.includes('brief') || descText.toLowerCase().includes('brief')) {
+              // Skip service documents - these are just proof of delivery, not actual briefs
+              const descLower = descText.toLowerCase();
+              if (typeText.includes('service') ||
+                  descLower.startsWith('service document') ||
+                  descLower.startsWith('service -') ||
+                  descLower.includes('declaration of service')) {
+                continue;
+              }
+
               // Build brief name from description and subtype
               let briefName = descText || subtypeText + ' Brief' || 'Unknown Brief';
 
