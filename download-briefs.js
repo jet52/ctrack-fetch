@@ -218,6 +218,10 @@ const BRIEF_TYPE_MAP = {
   'supplemental brief': 'Suppl-Br',
   'supplemental appellant brief': 'Suppl-Apt-Br',
   'supplemental appellee brief': 'Suppl-Ape-Br',
+
+  // Notice of Appeal
+  'notice of appeal': 'Notice-of-Appeal',
+  'notice appeal': 'Notice-of-Appeal',
 };
 
 /**
@@ -262,12 +266,41 @@ function formatCaseNumber(caseNum) {
 }
 
 /**
- * Generate filename for a brief
+ * Format case title for use in filename
+ * e.g., "Klebe v. Klebe" -> "Klebe-v-Klebe"
  */
-function generateFilename(caseNumber, briefType, index = null) {
+function formatCaseTitleForFilename(caseTitle) {
+  if (!caseTitle) return '';
+
+  // Replace common separators and clean up
+  let formatted = caseTitle
+    .replace(/\s+v\.\s+/gi, '-v-')      // "v." with spaces
+    .replace(/\s+vs\.\s+/gi, '-v-')     // "vs." with spaces
+    .replace(/\s+v\s+/gi, '-v-')        // "v" with spaces
+    .replace(/\s+vs\s+/gi, '-v-')       // "vs" with spaces
+    .replace(/[^\w\s-]/g, '')           // Remove special chars except hyphen
+    .replace(/\s+/g, '-')               // Replace spaces with hyphens
+    .replace(/-+/g, '-')                // Collapse multiple hyphens
+    .replace(/^-|-$/g, '')              // Trim leading/trailing hyphens
+    .substring(0, 50);                  // Limit length
+
+  debug(`Case title "${caseTitle}" -> "${formatted}"`);
+  return formatted;
+}
+
+/**
+ * Generate filename for a brief or document
+ */
+function generateFilename(caseNumber, caseTitle, docType, index = null) {
   const formattedCase = formatCaseNumber(caseNumber);
-  const abbrevType = abbreviateBriefType(briefType);
+  const formattedTitle = formatCaseTitleForFilename(caseTitle);
+  const abbrevType = abbreviateBriefType(docType);
   const suffix = index !== null ? index : '';
+
+  // Include case title if available
+  if (formattedTitle) {
+    return `${formattedCase}_${formattedTitle}_${abbrevType}${suffix}.pdf`;
+  }
   return `${formattedCase}_${abbrevType}${suffix}.pdf`;
 }
 
@@ -824,6 +857,30 @@ async function main() {
         await casePage.evaluate(() => window.scrollTo(0, 0));
         await new Promise(resolve => setTimeout(resolve, 1000));
 
+        // Extract case title from the page if not already set
+        if (!caseInfo.caseName) {
+          const extractedTitle = await casePage.evaluate(() => {
+            // Look for "Case View <title>" pattern in page text
+            const pageText = document.body.innerText;
+            const caseViewMatch = pageText.match(/Case View\s+([^\n]+)/i);
+            if (caseViewMatch) {
+              return caseViewMatch[1].trim();
+            }
+            // Also try looking for the case title element directly
+            const titleEl = document.querySelector('h1, [class*="case-title"], [class*="caseTitle"]');
+            if (titleEl) {
+              const text = titleEl.textContent.trim();
+              // Remove "Case View" prefix if present
+              return text.replace(/^Case View\s*/i, '').trim();
+            }
+            return '';
+          });
+          if (extractedTitle) {
+            caseInfo.caseName = extractedTitle;
+            debug(`Extracted case title: "${extractedTitle}"`);
+          }
+        }
+
         // Take screenshot of case page for debugging
         if (CONFIG.verbosity >= 2) {
           const screenshotPath = path.join(CONFIG.downloadDir, `case-${caseInfo.caseNumber}.png`);
@@ -931,69 +988,121 @@ async function main() {
         // Find all brief documents in the docket entries
         // The docket uses Vue/Vuetify table with data-header attributes
         // Structure: <tr> with <td data-header="Type">Brief</td>, <td data-header="Description">...<td>, <td data-header="View"><button>
-        const briefs = await casePage.evaluate(() => {
-          const briefLinks = [];
-          const seenDescriptions = new Set();
+        // We need to paginate through all docket pages to find all documents
 
-          // Look for table rows where Type or Description contains "brief"
-          const rows = document.querySelectorAll('tr');
+        // Helper function to extract briefs from current page
+        const extractBriefsFromPage = async () => {
+          return await casePage.evaluate(() => {
+            const briefLinks = [];
 
-          for (const row of rows) {
-            // Check if Type column contains "Brief" or Description mentions brief
-            const typeCell = row.querySelector('td[data-header="Type"]');
-            const descCell = row.querySelector('td[data-header="Description"]');
-            const subtypeCell = row.querySelector('td[data-header="Subtype"]');
-            const viewCell = row.querySelector('td[data-header="View"]');
+            const rows = document.querySelectorAll('tr');
 
-            const typeText = typeCell?.textContent?.trim().toLowerCase() || '';
-            const descText = descCell?.textContent?.trim() || '';
-            const subtypeText = subtypeCell?.textContent?.trim() || '';
+            for (const row of rows) {
+              const typeCell = row.querySelector('td[data-header="Type"]');
+              const descCell = row.querySelector('td[data-header="Description"]');
+              const subtypeCell = row.querySelector('td[data-header="Subtype"]');
+              const viewCell = row.querySelector('td[data-header="View"]');
 
-            // Check if this row is a brief entry
-            if (typeText.includes('brief') || descText.toLowerCase().includes('brief')) {
-              // Skip service documents - these are just proof of delivery, not actual briefs
+              const typeText = typeCell?.textContent?.trim().toLowerCase() || '';
+              const descText = descCell?.textContent?.trim() || '';
+              const subtypeText = subtypeCell?.textContent?.trim() || '';
+
               const descLower = descText.toLowerCase();
-              if (typeText.includes('service') ||
-                  descLower.startsWith('service document') ||
-                  descLower.startsWith('service -') ||
-                  descLower.includes('declaration of service')) {
-                continue;
+
+              // Check if this row is a brief or notice of appeal
+              const isBrief = typeText.includes('brief') || descLower.includes('brief');
+              const isNoticeOfAppeal = descLower.includes('notice of appeal') || typeText.includes('notice');
+
+              if (isBrief || isNoticeOfAppeal) {
+                // Skip service documents
+                if (typeText.includes('service') ||
+                    descLower.startsWith('service document') ||
+                    descLower.startsWith('service -') ||
+                    descLower.includes('declaration of service')) {
+                  continue;
+                }
+
+                // Build document name from description and subtype
+                let briefName = descText || subtypeText + ' Brief' || 'Unknown Brief';
+
+                // Find the View button
+                const viewButton = viewCell?.querySelector('button') || row.querySelector('button.v-btn');
+
+                if (viewButton) {
+                  briefLinks.push({
+                    name: briefName,
+                    rowIndex: Array.from(document.querySelectorAll('tr')).indexOf(row),
+                    type: typeText,
+                    subtype: subtypeText
+                  });
+                }
               }
+            }
 
-              // Build brief name from description and subtype
-              let briefName = descText || subtypeText + ' Brief' || 'Unknown Brief';
+            return briefLinks;
+          });
+        };
 
-              // Avoid duplicates
-              if (seenDescriptions.has(briefName)) continue;
-              seenDescriptions.add(briefName);
-
-              // Find the View button (v-btn class)
-              const viewButton = viewCell?.querySelector('button') || row.querySelector('button.v-btn');
-
-              if (viewButton) {
-                briefLinks.push({
-                  name: briefName,
-                  buttonIndex: Array.from(document.querySelectorAll('button.v-btn')).indexOf(viewButton),
-                  rowIndex: Array.from(document.querySelectorAll('tr')).indexOf(row),
-                  type: typeText,
-                  subtype: subtypeText
-                });
+        // Helper to check if there's a next page and click it
+        const goToNextPage = async () => {
+          return await casePage.evaluate(() => {
+            // Look for the "Go forward to page X" button
+            const buttons = document.querySelectorAll('button');
+            for (const btn of buttons) {
+              const text = btn.textContent || '';
+              if (text.includes('Go forward to page') && !btn.disabled) {
+                btn.click();
+                return true;
               }
+            }
+            return false;
+          });
+        };
+
+        // Collect briefs from all pages
+        const allBriefs = [];
+        const seenDescriptions = new Set();
+        let pageNum = 1;
+        const maxPages = 10; // Safety limit
+
+        while (pageNum <= maxPages) {
+          debug(`Scanning docket page ${pageNum}...`);
+
+          const pageBriefs = await extractBriefsFromPage();
+          debug(`  Found ${pageBriefs.length} document(s) on page ${pageNum}`);
+
+          // Add new briefs (avoiding duplicates)
+          for (const brief of pageBriefs) {
+            if (!seenDescriptions.has(brief.name)) {
+              seenDescriptions.add(brief.name);
+              // Store the page number so we know which page to navigate to for download
+              brief.pageNum = pageNum;
+              allBriefs.push(brief);
             }
           }
 
-          return briefLinks;
-        });
+          // Try to go to next page
+          const hasNextPage = await goToNextPage();
+          if (!hasNextPage) {
+            debug(`  No more pages after page ${pageNum}`);
+            break;
+          }
 
-        debug(`Found ${briefs.length} brief(s) for case ${caseInfo.caseNumber}`);
-        debug(`Briefs: ${JSON.stringify(briefs, null, 2)}`);
+          // Wait for the new page to load
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          pageNum++;
+        }
+
+        const briefs = allBriefs;
+        debug(`Found ${briefs.length} document(s) total for case ${caseInfo.caseNumber}`);
+        debug(`Documents: ${JSON.stringify(briefs, null, 2)}`);
 
         if (briefs.length === 0) {
-          progress(`  No briefs found for case ${caseInfo.caseNumber}`);
+          progress(`  No briefs or notices found for case ${caseInfo.caseNumber}`);
           continue;
         }
 
-        // Download each brief by clicking View buttons
+        // Download each brief/document by clicking View buttons
         for (let briefIndex = 0; briefIndex < briefs.length; briefIndex++) {
           const brief = briefs[briefIndex];
 
@@ -1004,12 +1113,12 @@ async function main() {
 
           const filename = generateFilename(
             caseInfo.caseNumber,
+            caseInfo.caseName,
             brief.name,
             count > 1 ? count : null
           );
 
-          debug(`Brief ${briefIndex + 1}/${briefs.length}: "${brief.name}" -> ${filename}`);
-          debug(`Row index: ${brief.rowIndex}`);
+          debug(`Document ${briefIndex + 1}/${briefs.length}: "${brief.name}" -> ${filename} (page ${brief.pageNum})`);
 
           // Create a fresh page for each brief to avoid frame detachment
           let briefPage;
@@ -1036,6 +1145,26 @@ async function main() {
               }
             });
             await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // Navigate to the correct page if needed
+            if (brief.pageNum > 1) {
+              debug(`  Navigating to docket page ${brief.pageNum}...`);
+              for (let p = 1; p < brief.pageNum; p++) {
+                const clicked = await briefPage.evaluate(() => {
+                  const buttons = document.querySelectorAll('button');
+                  for (const btn of buttons) {
+                    const text = btn.textContent || '';
+                    if (text.includes('Go forward to page') && !btn.disabled) {
+                      btn.click();
+                      return true;
+                    }
+                  }
+                  return false;
+                });
+                if (!clicked) break;
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
+            }
 
             briefClient = await briefPage.createCDPSession();
             await briefClient.send('Network.enable');
@@ -1112,19 +1241,24 @@ async function main() {
             briefClient.on('Network.requestWillBeSent', requestHandler);
             briefClient.on('Network.responseReceived', responseHandler);
 
-            // Click the View button for this brief
-            const downloadStarted = await briefPage.evaluate((rowIndex) => {
+            // Click the View button for this brief (find by description text)
+            const downloadStarted = await briefPage.evaluate((briefName) => {
               const rows = document.querySelectorAll('tr');
-              if (rows[rowIndex]) {
-                const viewButton = rows[rowIndex].querySelector('td[data-header="View"] button') ||
-                                   rows[rowIndex].querySelector('button.v-btn');
-                if (viewButton) {
-                  viewButton.click();
-                  return true;
+              for (const row of rows) {
+                const descCell = row.querySelector('td[data-header="Description"]');
+                const descText = descCell?.textContent?.trim() || '';
+
+                if (descText === briefName) {
+                  const viewButton = row.querySelector('td[data-header="View"] button') ||
+                                     row.querySelector('button.v-btn');
+                  if (viewButton) {
+                    viewButton.click();
+                    return true;
+                  }
                 }
               }
               return false;
-            }, brief.rowIndex);
+            }, brief.name);
 
             if (downloadStarted) {
               // Wait for the API call to complete and capture documentLinkUUID
