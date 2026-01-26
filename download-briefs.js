@@ -1011,7 +1011,10 @@ async function main() {
 
               // Check if this row is a brief or notice of appeal
               const isBrief = typeText.includes('brief') || descLower.includes('brief');
-              const isNoticeOfAppeal = descLower.includes('notice of appeal') || typeText.includes('notice');
+              // Match "Notice of Appeal" or "Amended Notice of Appeal" exactly (at start of description)
+              // Skip "Notice of Filing..." and "Motion for Extension..." etc.
+              const isNoticeOfAppeal = descLower.startsWith('notice of appeal') ||
+                                       descLower.startsWith('amended notice of appeal');
 
               if (isBrief || isNoticeOfAppeal) {
                 // Skip service documents
