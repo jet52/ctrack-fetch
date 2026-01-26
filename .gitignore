@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Downloaded PDFs
+*.pdf
+
+# Log files
+*.log
+
+# Screenshots
+*.png
+
+# Split output directory
+split_output/
+
+# OS files
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
