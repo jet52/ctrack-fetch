@@ -3,25 +3,101 @@
 /**
  * ND Supreme Court Brief Downloader
  *
- * Downloads all briefs for cases scheduled in the next 7 days
+ * Downloads all briefs for cases scheduled in the next N days
  * from the ND Supreme Court calendar.
- *
- * Usage: node download-briefs.js [verbosity]
- *   verbosity: 0=silent, 1=normal (default), 2=debug
  */
 
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
+// Parse command line arguments
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const options = {
+    verbosity: 1,
+    outputDir: process.cwd(),
+    days: 7,
+    help: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === '-h' || arg === '--help') {
+      options.help = true;
+    } else if (arg === '-v' || arg === '--verbose') {
+      options.verbosity = 2;
+    } else if (arg === '-q' || arg === '--quiet') {
+      options.verbosity = 0;
+    } else if (arg === '-o' || arg === '--output') {
+      if (i + 1 < args.length) {
+        options.outputDir = path.resolve(args[++i]);
+      } else {
+        console.error('Error: -o/--output requires a directory path');
+        process.exit(1);
+      }
+    } else if (arg === '-d' || arg === '--days') {
+      if (i + 1 < args.length) {
+        options.days = parseInt(args[++i], 10);
+        if (isNaN(options.days) || options.days < 1) {
+          console.error('Error: -d/--days requires a positive number');
+          process.exit(1);
+        }
+      } else {
+        console.error('Error: -d/--days requires a number');
+        process.exit(1);
+      }
+    } else if (arg.startsWith('-')) {
+      console.error(`Error: Unknown option: ${arg}`);
+      console.error('Use --help to see available options');
+      process.exit(1);
+    }
+  }
+
+  return options;
+}
+
+function showHelp() {
+  console.log(`
+ND Supreme Court Brief Downloader
+
+Downloads all briefs for cases scheduled on the ND Supreme Court calendar.
+
+Usage: node download-briefs.js [options]
+
+Options:
+  -h, --help          Show this help message
+  -v, --verbose       Enable debug output
+  -q, --quiet         Silent mode (no output)
+  -o, --output DIR    Output directory for downloaded PDFs (default: current directory)
+  -d, --days N        Number of days to look ahead (default: 7)
+
+Examples:
+  node download-briefs.js                     # Download briefs for next 7 days
+  node download-briefs.js -v                  # With debug output
+  node download-briefs.js -o ~/briefs         # Save to specific directory
+  node download-briefs.js -d 14               # Look ahead 14 days
+  node download-briefs.js -v -o ~/briefs -d 7 # Combine options
+`);
+}
+
+const parsedArgs = parseArgs();
+
+if (parsedArgs.help) {
+  showHelp();
+  process.exit(0);
+}
+
 // Configuration
 const CONFIG = {
   startUrl: 'https://www.ndcourts.gov/supreme-court/calendar#',
   // The cTrack portal URL with 7-day calendar filter
-  // courtID is for Supreme Court, calendarDateChoice '7d' means 7 days
+  // courtID is for Supreme Court
   ctrackCalendarUrl: 'https://portal.ctrack.ndcourts.gov/portal/search/calendar/results',
-  downloadDir: process.cwd(),
-  verbosity: parseInt(process.argv[2] || '1', 10),
+  downloadDir: parsedArgs.outputDir,
+  verbosity: parsedArgs.verbosity,
+  days: parsedArgs.days,
   timeout: 30000,
 };
 
@@ -31,7 +107,7 @@ const CONFIG = {
 function buildCalendarUrl() {
   const today = new Date();
   const endDate = new Date(today);
-  endDate.setDate(endDate.getDate() + 7);
+  endDate.setDate(endDate.getDate() + CONFIG.days);
 
   const formatDate = (d) => {
     const month = String(d.getMonth() + 1).padStart(2, '0');
