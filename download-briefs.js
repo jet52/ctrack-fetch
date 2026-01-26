@@ -18,6 +18,7 @@ function parseArgs() {
     verbosity: 1,
     outputDir: process.cwd(),
     days: 7,
+    caseNumber: null,
     help: false,
   };
 
@@ -48,6 +49,17 @@ function parseArgs() {
         console.error('Error: -d/--days requires a number');
         process.exit(1);
       }
+    } else if (arg === '-c' || arg === '--case') {
+      if (i + 1 < args.length) {
+        options.caseNumber = args[++i];
+        if (!/^\d{8}$/.test(options.caseNumber)) {
+          console.error('Error: -c/--case requires an 8-digit case number');
+          process.exit(1);
+        }
+      } else {
+        console.error('Error: -c/--case requires an 8-digit case number');
+        process.exit(1);
+      }
     } else if (arg.startsWith('-')) {
       console.error(`Error: Unknown option: ${arg}`);
       console.error('Use --help to see available options');
@@ -62,7 +74,8 @@ function showHelp() {
   console.log(`
 ND Supreme Court Brief Downloader
 
-Downloads all briefs for cases scheduled on the ND Supreme Court calendar.
+Downloads all briefs for cases scheduled on the ND Supreme Court calendar,
+or briefs for a specific case by case number.
 
 Usage: node download-briefs.js [options]
 
@@ -72,12 +85,14 @@ Options:
   -q, --quiet         Silent mode (no output)
   -o, --output DIR    Output directory for downloaded PDFs (default: current directory)
   -d, --days N        Number of days to look ahead (default: 7)
+  -c, --case NUMBER   Download briefs for a specific 8-digit case number
 
 Examples:
   node download-briefs.js                     # Download briefs for next 7 days
   node download-briefs.js -v                  # With debug output
   node download-briefs.js -o ~/briefs         # Save to specific directory
   node download-briefs.js -d 14               # Look ahead 14 days
+  node download-briefs.js -c 20250339         # Download briefs for specific case
   node download-briefs.js -v -o ~/briefs -d 7 # Combine options
 `);
 }
@@ -95,9 +110,12 @@ const CONFIG = {
   // The cTrack portal URL with 7-day calendar filter
   // courtID is for Supreme Court
   ctrackCalendarUrl: 'https://portal.ctrack.ndcourts.gov/portal/search/calendar/results',
+  // Case search URL for single case lookup
+  caseSearchUrl: 'https://portal.ctrack.ndcourts.gov/portal/search/case',
   downloadDir: parsedArgs.outputDir,
   verbosity: parsedArgs.verbosity,
   days: parsedArgs.days,
+  caseNumber: parsedArgs.caseNumber,
   timeout: 30000,
 };
 
@@ -285,6 +303,192 @@ async function downloadFile(page, url, filename) {
 }
 
 /**
+ * Search for a specific case by case number
+ * @param {Page} page - Puppeteer page object
+ * @param {string} caseNumber - 8-digit case number
+ * @returns {Object|null} - Case info object or null if not found
+ */
+async function searchForCase(page, caseNumber) {
+  progress(`Searching for case ${caseNumber}...`);
+  debug(`Navigating to case search: ${CONFIG.caseSearchUrl}`);
+
+  await page.goto(CONFIG.caseSearchUrl, { waitUntil: 'networkidle2' });
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Take screenshot in debug mode
+  if (CONFIG.verbosity >= 2) {
+    const screenshotPath = path.join(CONFIG.downloadDir, 'case-search-page.png');
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    debug(`Screenshot saved to: ${screenshotPath}`);
+  }
+
+  // Find the case number input field and enter the case number
+  // The field is typically labeled "Case Number" with an input
+  const inputFound = await page.evaluate((caseNum) => {
+    // Look for input fields that might be for case number
+    const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+    for (const input of inputs) {
+      // Check the label or placeholder
+      const label = input.getAttribute('aria-label') ||
+                    input.getAttribute('placeholder') ||
+                    input.closest('label')?.textContent || '';
+      const id = input.id || '';
+      const name = input.name || '';
+
+      // Also check for nearby label elements
+      let nearbyLabel = '';
+      if (input.id) {
+        const labelEl = document.querySelector(`label[for="${input.id}"]`);
+        if (labelEl) nearbyLabel = labelEl.textContent;
+      }
+
+      const allText = (label + id + name + nearbyLabel).toLowerCase();
+
+      if (allText.includes('case') && allText.includes('number')) {
+        input.value = caseNum;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return { found: true, fieldInfo: allText.substring(0, 100) };
+      }
+    }
+
+    // If not found by label, try the first prominent input field
+    const firstInput = document.querySelector('input[type="text"], input:not([type])');
+    if (firstInput) {
+      firstInput.value = caseNum;
+      firstInput.dispatchEvent(new Event('input', { bubbles: true }));
+      firstInput.dispatchEvent(new Event('change', { bubbles: true }));
+      return { found: true, fieldInfo: 'first text input' };
+    }
+
+    return { found: false };
+  }, caseNumber);
+
+  debug(`Input field search result: ${JSON.stringify(inputFound)}`);
+
+  if (!inputFound.found) {
+    progress('Could not find case number input field');
+    return null;
+  }
+
+  // Wait a moment for any autocomplete/validation
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Click the search button using Puppeteer's click
+  debug('Looking for SEARCH button...');
+  try {
+    // Try to find and click the SEARCH button
+    await page.waitForSelector('button', { timeout: 5000 });
+
+    const searchClicked = await page.evaluate(() => {
+      const buttons = document.querySelectorAll('button');
+      for (const btn of buttons) {
+        const text = (btn.textContent || '').trim().toUpperCase();
+        if (text === 'SEARCH') {
+          btn.click();
+          return { clicked: true, text: text };
+        }
+      }
+      return { clicked: false };
+    });
+
+    debug(`Search button click result: ${JSON.stringify(searchClicked)}`);
+
+    if (!searchClicked.clicked) {
+      // Try pressing Enter as fallback
+      debug('SEARCH button not found, trying Enter key...');
+      await page.keyboard.press('Enter');
+    }
+  } catch (e) {
+    debug(`Error clicking search: ${e.message}`);
+    await page.keyboard.press('Enter');
+  }
+
+  debug('Search initiated, waiting for results...');
+
+  // Wait for navigation or results to appear
+  try {
+    await Promise.race([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }),
+      new Promise(resolve => setTimeout(resolve, 5000))
+    ]);
+  } catch (e) {
+    debug('Navigation wait ended');
+  }
+
+  // Give extra time for results to render
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Take screenshot of results in debug mode
+  if (CONFIG.verbosity >= 2) {
+    const screenshotPath = path.join(CONFIG.downloadDir, 'case-search-results.png');
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    debug(`Screenshot saved to: ${screenshotPath}`);
+  }
+
+  // Debug: show what's on the page now
+  const pageText = await page.evaluate(() => document.body.innerText);
+  debug(`Results page text (first 500 chars): ${pageText.substring(0, 500)}`);
+
+  // Look for the case in the results and click on it
+  // Results appear in a table with clickable rows or links
+  const caseFound = await page.evaluate((caseNum) => {
+    // First, look in table rows (results are usually in a table)
+    const rows = document.querySelectorAll('table tr, .v-data-table tr');
+    for (const row of rows) {
+      const text = row.textContent || '';
+      // Skip if this is a header row or the search form input
+      if (row.querySelector('th') || row.querySelector('input')) continue;
+
+      if (text.includes(caseNum)) {
+        // Extract case name if available
+        const match = text.match(new RegExp(caseNum + '\\s*[-–]\\s*([^\\n]+)'));
+        const caseName = match ? match[1].trim().split('\n')[0].trim() : '';
+
+        // Click on the row or a link within it
+        const link = row.querySelector('a');
+        if (link) {
+          link.click();
+        } else {
+          row.click();
+        }
+        return { found: true, caseName: caseName.substring(0, 100), method: 'table row' };
+      }
+    }
+
+    // Also look for links containing the case number (not in input fields)
+    const links = document.querySelectorAll('a');
+    for (const link of links) {
+      const text = link.textContent || '';
+      if (text.includes(caseNum) && !link.closest('form')) {
+        const match = text.match(new RegExp(caseNum + '\\s*[-–]\\s*([^\\n]+)'));
+        const caseName = match ? match[1].trim().split('\n')[0].trim() : '';
+        link.click();
+        return { found: true, caseName: caseName.substring(0, 100), method: 'link' };
+      }
+    }
+
+    return { found: false };
+  }, caseNumber);
+
+  if (!caseFound.found) {
+    progress(`Case ${caseNumber} not found in search results`);
+    return null;
+  }
+
+  debug(`Found case: ${caseNumber} - ${caseFound.caseName}`);
+
+  // Wait for case page to load
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
+  return {
+    caseNumber: caseNumber,
+    caseName: caseFound.caseName,
+    href: page.url()
+  };
+}
+
+/**
  * Main scraping function
  */
 async function main() {
@@ -303,10 +507,25 @@ async function main() {
   const downloadedBriefs = new Map(); // key: caseNumber_briefType, value: count
 
   try {
-    // Step 1: Navigate directly to cTrack portal with 7-day calendar
-    const calendarUrl = buildCalendarUrl();
-    progress('Navigating to cTrack portal calendar (7-day view)...');
-    debug(`Calendar URL: ${calendarUrl}`);
+    let cases = [];
+
+    // Check if we're searching for a specific case or using the calendar
+    if (CONFIG.caseNumber) {
+      // Single case mode - search by case number
+      const caseInfo = await searchForCase(page, CONFIG.caseNumber);
+      if (caseInfo) {
+        cases = [caseInfo];
+      } else {
+        progress(`Could not find case ${CONFIG.caseNumber}`);
+        await browser.close();
+        return;
+      }
+    } else {
+      // Calendar mode - get cases from calendar
+      // Step 1: Navigate directly to cTrack portal with calendar
+      const calendarUrl = buildCalendarUrl();
+      progress(`Navigating to cTrack portal calendar (${CONFIG.days}-day view)...`);
+      debug(`Calendar URL: ${calendarUrl}`);
 
     await page.goto(calendarUrl, { waitUntil: 'networkidle2' });
     debug(`Current URL: ${page.url()}`);
@@ -344,7 +563,7 @@ async function main() {
     debug(`Page text (first 1000 chars): ${pageContent.substring(0, 1000)}`);
 
     // Look for case numbers - they should be clickable links to case details
-    const cases = await page.evaluate(() => {
+    cases = await page.evaluate(() => {
       const caseLinks = [];
       const seen = new Set();
 
@@ -392,11 +611,12 @@ async function main() {
       return caseLinks;
     });
 
-    progress(`Found ${cases.length} case(s) scheduled`);
-    debug(`Cases: ${JSON.stringify(cases, null, 2)}`);
+      progress(`Found ${cases.length} case(s) scheduled`);
+      debug(`Cases: ${JSON.stringify(cases, null, 2)}`);
+    } // end of calendar mode else block
 
     if (cases.length === 0) {
-      progress('No cases found. Page structure may have changed.');
+      progress('No cases found.');
 
       // Dump page content for debugging
       if (CONFIG.verbosity >= 2) {
@@ -420,9 +640,20 @@ async function main() {
         casePage = await browser.newPage();
         casePage.setDefaultTimeout(CONFIG.timeout);
 
-        // Navigate to calendar page
-        const calendarUrl = buildCalendarUrl();
-        await casePage.goto(calendarUrl, { waitUntil: 'networkidle2' });
+        // For single-case mode, navigate directly to case search and find the case
+        // For calendar mode, navigate through the calendar
+        if (CONFIG.caseNumber) {
+          // Single case mode - search for the case directly
+          const searchResult = await searchForCase(casePage, caseInfo.caseNumber);
+          if (!searchResult) {
+            progress(`  Could not find case ${caseInfo.caseNumber}`);
+            await casePage.close().catch(() => {});
+            continue;
+          }
+        } else {
+          // Calendar mode - navigate through the calendar
+          const calendarUrl = buildCalendarUrl();
+          await casePage.goto(calendarUrl, { waitUntil: 'networkidle2' });
 
         // Wait for the calendar content to load (SPA needs time)
         debug('Waiting for calendar content to load...');
@@ -570,9 +801,10 @@ async function main() {
         // Wait for navigation to docket page
         await casePage.waitForNavigation({ waitUntil: 'networkidle2', timeout: CONFIG.timeout }).catch(() => {});
         await new Promise(resolve => setTimeout(resolve, 2000));
+        } // end of calendar mode else block
 
         const currentUrl = casePage.url();
-        debug(`After clicking case link, URL: ${currentUrl}`);
+        debug(`Current URL: ${currentUrl}`);
 
         // Wait for docket entries to load and scroll to ensure all content loads
         debug('Waiting for docket content to load...');
