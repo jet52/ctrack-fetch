@@ -68,7 +68,7 @@ npm install
 ### Download briefs from the calendar
 
 ```
-node download-briefs.js
+node ctrack-fetch.js
 ```
 
 This downloads briefs for all cases scheduled in the next 7 days.
@@ -76,7 +76,7 @@ This downloads briefs for all cases scheduled in the next 7 days.
 ### Download briefs for a specific case
 
 ```
-node download-briefs.js -c 20250384
+node ctrack-fetch.js -c 20250384
 ```
 
 ### Options
@@ -93,10 +93,10 @@ node download-briefs.js -c 20250384
 ### Examples
 
 ```
-node download-briefs.js -v                    # With debug output
-node download-briefs.js -o ~/briefs           # Save to specific directory
-node download-briefs.js -d 14                 # Look ahead 14 days
-node download-briefs.js -c 20250339           # Specific case
-node download-briefs.js -v -o ~/briefs -d 7   # Combine options
+node ctrack-fetch.js -v                    # With debug output
+node ctrack-fetch.js -o ~/briefs           # Save to specific directory
+node ctrack-fetch.js -d 14                 # Look ahead 14 days
+node ctrack-fetch.js -c 20250339           # Specific case
+node ctrack-fetch.js -v -o ~/briefs -d 7   # Combine options
 ```
 

@@ -77,7 +77,7 @@ ND Supreme Court Brief Downloader
 Downloads all briefs for cases scheduled on the ND Supreme Court calendar,
 or briefs for a specific case by case number.
 
-Usage: node download-briefs.js [options]
+Usage: node ctrack-fetch.js [options]
 
 Options:
   -h, --help          Show this help message
@@ -88,12 +88,12 @@ Options:
   -c, --case NUMBER   Download briefs for a specific 8-digit case number
 
 Examples:
-  node download-briefs.js                     # Download briefs for next 7 days
-  node download-briefs.js -v                  # With debug output
-  node download-briefs.js -o ~/briefs         # Save to specific directory
-  node download-briefs.js -d 14               # Look ahead 14 days
-  node download-briefs.js -c 20250339         # Download briefs for specific case
-  node download-briefs.js -v -o ~/briefs -d 7 # Combine options
+  node ctrack-fetch.js                     # Download briefs for next 7 days
+  node ctrack-fetch.js -v                  # With debug output
+  node ctrack-fetch.js -o ~/briefs         # Save to specific directory
+  node ctrack-fetch.js -d 14               # Look ahead 14 days
+  node ctrack-fetch.js -c 20250339         # Download briefs for specific case
+  node ctrack-fetch.js -v -o ~/briefs -d 7 # Combine options
 `);
 }
 
