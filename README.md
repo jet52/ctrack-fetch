@@ -2,12 +2,11 @@
 
 Downloads briefs and documents from the North Dakota Supreme Court [cTrack portal](https://portal.ctrack.ndcourts.gov). Can download all briefs for cases on the upcoming calendar or target a specific case by number.
 
-Also includes Python utilities for extracting bookmarks from and splitting large PDF memo packets.
+For splitting memo packet PDFs by bookmark, see [splitmarks](https://github.com/jet52/splitmarks).
 
 ## Requirements
 
 - [Node.js](https://nodejs.org/) v18 or later
-- Python 3.8+ (only needed for the PDF utilities)
 
 ## Installation
 
@@ -101,36 +100,3 @@ node download-briefs.js -c 20250339           # Specific case
 node download-briefs.js -v -o ~/briefs -d 7   # Combine options
 ```
 
-## PDF Utilities
-
-These Python scripts process the large memo packet PDFs that the court distributes for oral argument cases.
-
-### Extract bookmarks
-
-Extracts the bookmark/table of contents structure from a memo packet PDF and saves it as JSON:
-
-```
-pip install pikepdf
-python fast_bookmarks.py
-```
-
-Alternative using PyPDF2:
-
-```
-pip install PyPDF2
-python pypdf_bookmarks.py
-```
-
-> Both scripts currently have the input PDF path hardcoded. Edit the `pdf_path` variable at the top of the script to point to your file.
-
-### Split a memo packet
-
-Splits a memo packet PDF into individual documents (memo, briefs, record items) based on the extracted bookmark data:
-
-```
-pip install PyPDF2
-python fast_bookmarks.py       # generates bookmarks.json
-python split_pdf.py            # splits PDF into split_output/
-```
-
-> The source PDF path is hardcoded in `split_pdf.py`. Edit the filename on the `PdfReader(...)` line to match your file.
