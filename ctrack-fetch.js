@@ -220,6 +220,7 @@ const BRIEF_TYPE_MAP = {
   'supplemental appellee brief': 'Suppl-Ape-Br',
 
   // Notice of Appeal
+  'amended notice of appeal': 'Amended-Notice-of-Appeal',
   'notice of appeal': 'Notice-of-Appeal',
   'notice appeal': 'Notice-of-Appeal',
 };
@@ -235,8 +236,10 @@ function abbreviateBriefType(briefName) {
     return BRIEF_TYPE_MAP[normalized];
   }
 
-  // Check for partial matches
-  for (const [pattern, abbrev] of Object.entries(BRIEF_TYPE_MAP)) {
+  // Check for partial matches (longer patterns first to prefer specific matches)
+  const sortedEntries = Object.entries(BRIEF_TYPE_MAP)
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [pattern, abbrev] of sortedEntries) {
     if (normalized.includes(pattern)) {
       return abbrev;
     }
@@ -849,9 +852,10 @@ async function main() {
               const descLower = descText.toLowerCase();
 
               // Check if this row is a brief or notice of appeal
-              const isBrief = typeText.includes('brief') || descLower.includes('brief');
+              // Only match rows where the Type is "Brief", not notices/motions that mention briefs
+              const isBrief = typeText === 'brief';
               // Match "Notice of Appeal" or "Amended Notice of Appeal" exactly (at start of description)
-              // Skip "Notice of Filing..." and "Motion for Extension..." etc.
+              // Skip "Notice of Filing...", "Notice - From Clerk", "Motion for Extension..." etc.
               const isNoticeOfAppeal = descLower.startsWith('notice of appeal') ||
                                        descLower.startsWith('amended notice of appeal');
 
