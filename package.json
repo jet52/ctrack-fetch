@@ -2,11 +2,11 @@
   "name": "nd-court-brief-downloader",
   "version": "1.0.0",
   "description": "Downloads briefs from ND Supreme Court calendar",
-  "main": "download-briefs.js",
+  "main": "ctrack-fetch.js",
   "scripts": {
-    "download": "node download-briefs.js 1",
-    "download:debug": "node download-briefs.js 2",
-    "download:silent": "node download-briefs.js 0"
+    "download": "node ctrack-fetch.js 1",
+    "download:debug": "node ctrack-fetch.js 2",
+    "download:silent": "node ctrack-fetch.js 0"
   },
   "dependencies": {
     "puppeteer": "^24.0.0"
