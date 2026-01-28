@@ -600,45 +600,39 @@ async function main() {
       const caseLinks = [];
       const seen = new Set();
 
-      // First, look for links containing case numbers
-      const links = Array.from(document.querySelectorAll('a'));
-      for (const link of links) {
-        const text = link.textContent.trim();
-        const href = link.href;
+      // Look for table cells containing case numbers in "Calendar Name" format:
+      // "20250362 - Klebe v. Klebe"
+      // Use td elements to avoid grabbing text from adjacent columns
+      const cells = document.querySelectorAll('td, a');
+      for (const cell of cells) {
+        // Use only the cell's own text content, not descendant elements' text
+        // For <a> tags use textContent directly; for <td> check innerText
+        const text = cell.textContent.trim();
 
-        // Look for case number patterns (8 digits starting with 20)
-        const caseMatch = text.match(/\b(20\d{6})\b/);
-        if (caseMatch && !seen.has(caseMatch[1])) {
-          seen.add(caseMatch[1]);
-          caseLinks.push({
-            caseNumber: caseMatch[1],
-            href: href,
-            text: text.substring(0, 100)
-          });
-        }
-      }
+        const caseMatch = text.match(/\b(20\d{6})\s*-\s*/);
+        if (!caseMatch || seen.has(caseMatch[1])) continue;
 
-      // Also look for any element containing case numbers that might be clickable
-      const allElements = document.querySelectorAll('*');
-      for (const el of allElements) {
-        const text = el.textContent || '';
-        const caseMatch = text.match(/\b(20\d{6})\s*-\s*([^,\n]+)/);
-        if (caseMatch && !seen.has(caseMatch[1])) {
-          // Check if this element or a parent is clickable
-          let clickable = el.closest('a, button, [onclick], [role="button"]');
-          if (!clickable && el.tagName === 'A') clickable = el;
+        // Extract case name: everything after "NUMBER - " up to the end of this cell's text,
+        // but stop before common calendar column text that may bleed in
+        const afterNumber = text.substring(caseMatch.index + caseMatch[0].length);
+        // Take only the first line, and stop before "Oral Argument", "Reliable Electronic", etc.
+        const caseName = afterNumber
+          .split('\n')[0]
+          .replace(/Oral Argument.*/, '')
+          .replace(/Reliable Electronic.*/, '')
+          .replace(/North Dakota Supreme Court.*/, '')
+          .replace(/\d{2}\/\d{2}\/\d{4}.*/, '')
+          .trim();
 
-          // Also check if clicking would navigate (has href in URL pattern)
-          const href = clickable ? clickable.href : null;
+        const href = cell.tagName === 'A' ? cell.href : (cell.querySelector('a') || {}).href || null;
 
-          seen.add(caseMatch[1]);
-          caseLinks.push({
-            caseNumber: caseMatch[1],
-            caseName: caseMatch[2].trim(),
-            href: href,
-            text: text.substring(0, 100).trim()
-          });
-        }
+        seen.add(caseMatch[1]);
+        caseLinks.push({
+          caseNumber: caseMatch[1],
+          caseName: caseName || '',
+          href: href,
+          text: text.substring(0, 100)
+        });
       }
 
       return caseLinks;
@@ -673,168 +667,13 @@ async function main() {
         casePage = await browser.newPage();
         casePage.setDefaultTimeout(CONFIG.timeout);
 
-        // For single-case mode, navigate directly to case search and find the case
-        // For calendar mode, navigate through the calendar
-        if (CONFIG.caseNumber) {
-          // Single case mode - search for the case directly
-          const searchResult = await searchForCase(casePage, caseInfo.caseNumber);
-          if (!searchResult) {
-            progress(`  Could not find case ${caseInfo.caseNumber}`);
-            await casePage.close().catch(() => {});
-            continue;
-          }
-        } else {
-          // Calendar mode - navigate through the calendar
-          const calendarUrl = buildCalendarUrl();
-          await casePage.goto(calendarUrl, { waitUntil: 'networkidle2' });
-
-        // Wait for the calendar content to load (SPA needs time)
-        debug('Waiting for calendar content to load...');
-        try {
-          await casePage.waitForFunction(
-            (caseNum) => document.body.innerText.includes(caseNum),
-            { timeout: 15000 },
-            caseInfo.caseNumber
-          );
-        } catch (e) {
-          debug(`Timeout waiting for case ${caseInfo.caseNumber} to appear in calendar`);
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Click on the DATE link (not case number) in the calendar to navigate to case page
-        // The date/time is the clickable link (shown in orange), not the case number
-        debug(`Looking for date link associated with case ${caseInfo.caseNumber}...`);
-
-        // Debug: look for date-like elements (they may not be <a> tags)
-        const dateElementsDebug = await casePage.evaluate(() => {
-          const results = [];
-          const allElements = document.querySelectorAll('*');
-          for (const el of allElements) {
-            const text = (el.textContent || '').trim();
-            // Look for elements containing date patterns
-            if (text.match(/\d{2}\/\d{2}\/\d{4}/) && text.length < 100) {
-              results.push({
-                tag: el.tagName,
-                text: text.substring(0, 60),
-                classes: el.className,
-                hasHref: !!el.href,
-                isClickable: el.tagName === 'A' || el.tagName === 'BUTTON' || el.onclick !== null || el.getAttribute('role') === 'button'
-              });
-            }
-          }
-          return results;
-        });
-        debug(`Date-like elements: ${JSON.stringify(dateElementsDebug, null, 2)}`);
-
-        const clickedCase = await casePage.evaluate((caseNum) => {
-          // The dates are BUTTON elements with class "link-button", not <a> tags
-          // Find the table row containing this case number and click its date button
-
-          const rows = document.querySelectorAll('tr');
-          for (const row of rows) {
-            if (row.textContent.includes(caseNum)) {
-              // Look for the date button in this row
-              const dateButton = row.querySelector('button.link-button');
-              if (dateButton) {
-                dateButton.click();
-                return {
-                  clicked: true,
-                  buttonText: dateButton.textContent.trim(),
-                  method: 'date button in table row'
-                };
-              }
-
-              // Also try any button in the row
-              const anyButton = row.querySelector('button');
-              if (anyButton) {
-                anyButton.click();
-                return {
-                  clicked: true,
-                  buttonText: anyButton.textContent.trim(),
-                  method: 'any button in table row'
-                };
-              }
-            }
-          }
-
-          // Fallback: look for button with date near case number
-          const allElements = document.querySelectorAll('*');
-          for (const el of allElements) {
-            const text = el.textContent || '';
-            if (text.includes(caseNum) && text.length < 500) {
-              const dateButton = el.querySelector('button.link-button') || el.querySelector('button');
-              if (dateButton && dateButton.textContent.match(/\d{2}\/\d{2}\/\d{4}/)) {
-                dateButton.click();
-                return {
-                  clicked: true,
-                  buttonText: dateButton.textContent.trim(),
-                  method: 'date button in case container'
-                };
-              }
-            }
-          }
-
-          return { clicked: false };
-        }, caseInfo.caseNumber);
-
-        debug(`Click result: ${JSON.stringify(clickedCase)}`);
-
-        if (!clickedCase.clicked) {
-          progress(`  Could not find date button for case ${caseInfo.caseNumber}`);
+        // Search for the case directly by case number
+        const searchResult = await searchForCase(casePage, caseInfo.caseNumber);
+        if (!searchResult) {
+          progress(`  Could not find case ${caseInfo.caseNumber}`);
+          await casePage.close().catch(() => {});
           continue;
         }
-
-        // Wait for navigation to event details page
-        await casePage.waitForNavigation({ waitUntil: 'networkidle2', timeout: CONFIG.timeout }).catch(() => {});
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        debug(`After clicking date, URL: ${casePage.url()}`);
-
-        // Step 2: Now click on the case number link to get to the docket
-        debug(`Looking for case number link (${caseInfo.caseNumber}) on event details page...`);
-
-        const clickedCaseLink = await casePage.evaluate((caseNum) => {
-          // Look for a link containing the case number
-          const links = Array.from(document.querySelectorAll('a'));
-          for (const link of links) {
-            if (link.textContent.includes(caseNum)) {
-              link.click();
-              return {
-                clicked: true,
-                href: link.href,
-                text: link.textContent.trim(),
-                method: 'case number link'
-              };
-            }
-          }
-
-          // Also try buttons
-          const buttons = Array.from(document.querySelectorAll('button'));
-          for (const button of buttons) {
-            if (button.textContent.includes(caseNum)) {
-              button.click();
-              return {
-                clicked: true,
-                text: button.textContent.trim(),
-                method: 'case number button'
-              };
-            }
-          }
-
-          return { clicked: false };
-        }, caseInfo.caseNumber);
-
-        debug(`Case link click result: ${JSON.stringify(clickedCaseLink)}`);
-
-        if (!clickedCaseLink.clicked) {
-          progress(`  Could not find case number link for ${caseInfo.caseNumber}`);
-          continue;
-        }
-
-        // Wait for navigation to docket page
-        await casePage.waitForNavigation({ waitUntil: 'networkidle2', timeout: CONFIG.timeout }).catch(() => {});
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        } // end of calendar mode else block
 
         const currentUrl = casePage.url();
         debug(`Current URL: ${currentUrl}`);
