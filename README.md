@@ -2,8 +2,6 @@
 
 Downloads briefs and documents from the North Dakota Supreme Court public [cTrack portal](https://portal.ctrack.ndcourts.gov). Can download all briefs for cases on the upcoming calendar or target a specific case by number.
 
-For splitting memo packet PDFs by bookmark, see [splitmarks](https://github.com/jet52/splitmarks).
-
 ## Requirements
 
 - [Node.js](https://nodejs.org/) v18 or later
