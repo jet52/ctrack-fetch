@@ -41,6 +41,10 @@ Downloads use Chrome DevTools Protocol (CDP) sessions to intercept network traff
 
 Each case and each document download is wrapped in try-catch so failures don't halt the batch. Debug mode (`-v`) saves screenshots and logs page HTML for troubleshooting.
 
+## Authentication
+
+None. The script uses the public cTrack portal as an anonymous visitor. No login credentials are stored or used. Session cookies are obtained automatically during each run and discarded when the browser closes.
+
 ## Dependencies
 
 Single dependency: `puppeteer` (^24.0.0). No build step, no transpilation.
