@@ -4,9 +4,9 @@
   "description": "Downloads briefs from ND Supreme Court calendar",
   "main": "ctrack-fetch.js",
   "scripts": {
-    "download": "node ctrack-fetch.js 1",
-    "download:debug": "node ctrack-fetch.js 2",
-    "download:silent": "node ctrack-fetch.js 0"
+    "download": "node ctrack-fetch.js",
+    "download:debug": "node ctrack-fetch.js -v",
+    "download:silent": "node ctrack-fetch.js -q"
   },
   "dependencies": {
     "puppeteer": "^24.0.0"

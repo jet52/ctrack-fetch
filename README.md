@@ -69,12 +69,20 @@ npm install
 node ctrack-fetch.js
 ```
 
-This downloads briefs for all cases scheduled in the next 7 days.
+This downloads briefs for all cases scheduled in the next 7 days. No login is required — the script uses the public cTrack portal as an anonymous visitor.
 
 ### Download briefs for a specific case
 
 ```
 node ctrack-fetch.js -c 20250384
+```
+
+### npm scripts
+
+```
+npm run download               # Normal run
+npm run download:debug         # Opens visible browser, verbose output
+npm run download:silent        # No console output
 ```
 
 ### Options
