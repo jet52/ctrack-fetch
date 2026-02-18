@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Downloads briefs from ND Supreme Court calendar",
   "main": "ctrack-fetch.js",
+  "bin": {
+    "ctrack-fetch": "./ctrack-fetch.js"
+  },
   "scripts": {
     "download": "node ctrack-fetch.js",
     "download:debug": "node ctrack-fetch.js -v",
