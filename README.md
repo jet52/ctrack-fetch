@@ -1,6 +1,6 @@
 # ctrack-fetch
 
-Downloads briefs and documents from the North Dakota Supreme Court public [cTrack portal](https://portal.ctrack.ndcourts.gov). Can download all briefs for cases on the upcoming calendar or target a specific case by number.
+Downloads briefs and documents from the North Dakota Supreme Court public [cTrack portal](https://portal.ctrack.ndcourts.gov). Can download all briefs for cases on the upcoming calendar, target a specific case by number, or download all documents for a case.
 
 ## Requirements
 
@@ -77,6 +77,14 @@ This downloads briefs for all cases scheduled in the next 7 days. No login is re
 node ctrack-fetch.js -c 20250384
 ```
 
+### Download all documents for a case
+
+```
+node ctrack-fetch.js -c 20250384 -a
+```
+
+This downloads every document with a viewable attachment (motions, notices, affidavits, etc.), not just briefs and notices of appeal. Service documents are always skipped.
+
 ### npm scripts
 
 ```
@@ -95,6 +103,7 @@ npm run download:silent        # No console output
 | `-o, --output DIR` | Output directory for downloaded PDFs | current directory |
 | `-d, --days N` | Number of days to look ahead on calendar | 7 |
 | `-c, --case NUMBER` | Download briefs for a specific 8-digit case number | |
+| `-a, --all` | Download all documents, not just briefs/NOA | |
 
 ### Examples
 
@@ -103,6 +112,7 @@ node ctrack-fetch.js -v                    # With debug output
 node ctrack-fetch.js -o ~/briefs           # Save to specific directory
 node ctrack-fetch.js -d 14                 # Look ahead 14 days
 node ctrack-fetch.js -c 20250339           # Specific case
+node ctrack-fetch.js -c 20250339 -a        # All documents for a case
 node ctrack-fetch.js -v -o ~/briefs -d 7   # Combine options
 ```
 

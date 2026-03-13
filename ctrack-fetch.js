@@ -19,6 +19,7 @@ function parseArgs() {
     outputDir: process.cwd(),
     days: 7,
     caseNumber: null,
+    allDocs: false,
     help: false,
   };
 
@@ -60,6 +61,8 @@ function parseArgs() {
         console.error('Error: -c/--case requires an 8-digit case number');
         process.exit(1);
       }
+    } else if (arg === '-a' || arg === '--all') {
+      options.allDocs = true;
     } else if (arg.startsWith('-')) {
       console.error(`Error: Unknown option: ${arg}`);
       console.error('Use --help to see available options');
@@ -86,6 +89,7 @@ Options:
   -o, --output DIR    Output directory for downloaded PDFs (default: current directory)
   -d, --days N        Number of days to look ahead (default: 7)
   -c, --case NUMBER   Download briefs for a specific 8-digit case number
+  -a, --all           Download all documents (not just briefs/NOA)
 
 Examples:
   node ctrack-fetch.js                     # Download briefs for next 7 days
@@ -93,6 +97,7 @@ Examples:
   node ctrack-fetch.js -o ~/briefs         # Save to specific directory
   node ctrack-fetch.js -d 14               # Look ahead 14 days
   node ctrack-fetch.js -c 20250339         # Download briefs for specific case
+  node ctrack-fetch.js -c 20250339 -a      # Download all documents for a case
   node ctrack-fetch.js -v -o ~/briefs -d 7 # Combine options
 `);
 }
@@ -116,6 +121,7 @@ const CONFIG = {
   verbosity: parsedArgs.verbosity,
   days: parsedArgs.days,
   caseNumber: parsedArgs.caseNumber,
+  allDocs: parsedArgs.allDocs,
   timeout: 30000,
 };
 
@@ -293,18 +299,15 @@ function formatCaseTitleForFilename(caseTitle) {
 
 /**
  * Generate filename for a brief or document
+ * Format: {caseNumber}_{docketId}_{docType}.pdf
  */
-function generateFilename(caseNumber, caseTitle, docType, index = null) {
+function generateFilename(caseNumber, docketId, docType, index = null) {
   const formattedCase = formatCaseNumber(caseNumber);
-  const formattedTitle = formatCaseTitleForFilename(caseTitle);
+  const paddedDocketId = String(docketId).padStart(3, '0');
   const abbrevType = abbreviateBriefType(docType);
   const suffix = index !== null ? index : '';
 
-  // Include case title if available
-  if (formattedTitle) {
-    return `${formattedCase}_${formattedTitle}_${abbrevType}${suffix}.pdf`;
-  }
-  return `${formattedCase}_${abbrevType}${suffix}.pdf`;
+  return `${formattedCase}_${paddedDocketId}_${abbrevType}${suffix}.pdf`;
 }
 
 /**
@@ -833,14 +836,21 @@ async function main() {
         // We need to paginate through all docket pages to find all documents
 
         // Helper function to extract briefs from current page
-        const extractBriefsFromPage = async () => {
-          return await casePage.evaluate(() => {
+        // rowOffset is the number of data rows on previous pages (for sequential numbering)
+        const extractBriefsFromPage = async (rowOffset) => {
+          return await casePage.evaluate((allDocsMode, offset) => {
             const briefLinks = [];
 
             const rows = document.querySelectorAll('tr');
+            let dataRowIndex = 0;
 
             for (const row of rows) {
               const typeCell = row.querySelector('td[data-header="Type"]');
+              if (!typeCell) continue; // skip header rows
+
+              dataRowIndex++;
+              const docketId = offset + dataRowIndex;
+
               const descCell = row.querySelector('td[data-header="Description"]');
               const subtypeCell = row.querySelector('td[data-header="Subtype"]');
               const viewCell = row.querySelector('td[data-header="View"]');
@@ -851,42 +861,39 @@ async function main() {
 
               const descLower = descText.toLowerCase();
 
+              // Skip service documents in all modes
+              if (typeText.includes('service') ||
+                  descLower.startsWith('service document') ||
+                  descLower.startsWith('service -') ||
+                  descLower.includes('declaration of service')) {
+                continue;
+              }
+
               // Check if this row is a brief or notice of appeal
-              // Only match rows where the Type is "Brief", not notices/motions that mention briefs
               const isBrief = typeText === 'brief';
-              // Match "Notice of Appeal" or "Amended Notice of Appeal" exactly (at start of description)
-              // Skip "Notice of Filing...", "Notice - From Clerk", "Motion for Extension..." etc.
               const isNoticeOfAppeal = descLower.startsWith('notice of appeal') ||
                                        descLower.startsWith('amended notice of appeal');
 
-              if (isBrief || isNoticeOfAppeal) {
-                // Skip service documents
-                if (typeText.includes('service') ||
-                    descLower.startsWith('service document') ||
-                    descLower.startsWith('service -') ||
-                    descLower.includes('declaration of service')) {
-                  continue;
-                }
+              // Find the View button
+              const viewButton = viewCell?.querySelector('button') || row.querySelector('button.v-btn');
+              if (!viewButton) continue;
 
+              if (allDocsMode || isBrief || isNoticeOfAppeal) {
                 // Build document name from description and subtype
                 let briefName = descText || subtypeText + ' Brief' || 'Unknown Brief';
 
-                // Find the View button
-                const viewButton = viewCell?.querySelector('button') || row.querySelector('button.v-btn');
-
-                if (viewButton) {
-                  briefLinks.push({
-                    name: briefName,
-                    rowIndex: Array.from(document.querySelectorAll('tr')).indexOf(row),
-                    type: typeText,
-                    subtype: subtypeText
-                  });
-                }
+                briefLinks.push({
+                  name: briefName,
+                  rowIndex: Array.from(document.querySelectorAll('tr')).indexOf(row),
+                  type: typeText,
+                  subtype: subtypeText,
+                  docketId: docketId
+                });
               }
             }
 
-            return briefLinks;
-          });
+            return { entries: briefLinks, totalRows: dataRowIndex };
+          }, CONFIG.allDocs, rowOffset);
         };
 
         // Helper to check if there's a next page and click it
@@ -909,12 +916,15 @@ async function main() {
         const allBriefs = [];
         const seenDescriptions = new Set();
         let pageNum = 1;
+        let rowOffset = 0;
         const maxPages = 10; // Safety limit
 
         while (pageNum <= maxPages) {
           debug(`Scanning docket page ${pageNum}...`);
 
-          const pageBriefs = await extractBriefsFromPage();
+          const pageResult = await extractBriefsFromPage(rowOffset);
+          const pageBriefs = pageResult.entries;
+          rowOffset += pageResult.totalRows;
           debug(`  Found ${pageBriefs.length} document(s) on page ${pageNum}`);
 
           // Add new briefs (avoiding duplicates)
@@ -939,12 +949,18 @@ async function main() {
           pageNum++;
         }
 
+        // Remap docketIds: table is sorted newest-first, but we want oldest = 1
+        const totalRows = rowOffset;
+        for (const brief of allBriefs) {
+          brief.docketId = totalRows - brief.docketId + 1;
+        }
+
         const briefs = allBriefs;
-        debug(`Found ${briefs.length} document(s) total for case ${caseInfo.caseNumber}`);
+        debug(`Found ${briefs.length} document(s) total for case ${caseInfo.caseNumber} (${totalRows} total docket rows)`);
         debug(`Documents: ${JSON.stringify(briefs, null, 2)}`);
 
         if (briefs.length === 0) {
-          progress(`  No briefs or notices found for case ${caseInfo.caseNumber}`);
+          progress(`  No ${CONFIG.allDocs ? 'documents' : 'briefs or notices'} found for case ${caseInfo.caseNumber}`);
           continue;
         }
 
@@ -953,13 +969,13 @@ async function main() {
           const brief = briefs[briefIndex];
 
           // Generate unique filename
-          const key = `${caseInfo.caseNumber}_${abbreviateBriefType(brief.name)}`;
+          const key = `${caseInfo.caseNumber}_${brief.docketId || briefIndex}_${abbreviateBriefType(brief.name)}`;
           const count = (downloadedBriefs.get(key) || 0) + 1;
           downloadedBriefs.set(key, count);
 
           const filename = generateFilename(
             caseInfo.caseNumber,
-            caseInfo.caseName,
+            brief.docketId || (briefIndex + 1),
             brief.name,
             count > 1 ? count : null
           );

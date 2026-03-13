@@ -16,7 +16,7 @@ npm run download:silent        # No console output
 node ctrack-fetch.js [options] # Direct execution
 ```
 
-Key flags: `-v` verbose, `-q` quiet, `-o DIR` output dir, `-d N` days lookahead (default 7), `-c NUMBER` specific 8-digit case number.
+Key flags: `-v` verbose, `-q` quiet, `-o DIR` output dir, `-d N` days lookahead (default 7), `-c NUMBER` specific 8-digit case number, `-a` download all documents (not just briefs/NOA).
 
 ## Architecture
 
@@ -26,7 +26,7 @@ The entire application is a single file: `ctrack-fetch.js` (~1,300 lines). Key s
 2. **`BRIEF_TYPE_MAP`** - maps docket entry descriptions to abbreviated brief type codes (e.g., `Apt-Br`, `Ape-Br`)
 3. **Calendar mode** - constructs date-filtered URL, parses calendar HTML to extract case numbers/titles
 4. **Single-case mode** - navigates search UI to find a specific case
-5. **Docket scraping** - paginates through docket entries looking for briefs/notices of appeal
+5. **Docket scraping** - paginates through docket entries looking for briefs/notices of appeal (or all documents with `-a`)
 6. **PDF download pipeline** - uses CDP network monitoring to capture `documentLinkUUID` from API responses, then constructs authenticated download URLs
 
 ### PDF Download Strategy
@@ -35,7 +35,7 @@ Downloads use Chrome DevTools Protocol (CDP) sessions to intercept network traff
 
 ### Filename Convention
 
-`{caseNumber}_{caseTitle}_{briefType}[{index}].pdf` — e.g., `20250305_State-v-Landen_Apt-Br.pdf`
+`{caseNumber}_{docketId}_{briefType}[{index}].pdf` — e.g., `20260027_015_Resp-Br.pdf`. The `docketId` is a zero-padded sequential number (oldest entry = 001) derived from the row's position in the docket table.
 
 ### Error Handling
 
