@@ -663,6 +663,7 @@ async function main() {
 
     // Step 4: For each case, find and download briefs
     let totalBriefs = 0;
+    const manifest = [];
 
     for (const caseInfo of cases) {
       progress(`\nProcessing case ${caseInfo.caseNumber}${caseInfo.caseName ? ' - ' + caseInfo.caseName : ''}...`);
@@ -982,6 +983,11 @@ async function main() {
 
           debug(`Document ${briefIndex + 1}/${briefs.length}: "${brief.name}" -> ${filename} (page ${brief.pageNum})`);
 
+          // Track download result for manifest
+          let downloadUrl = null;
+          let downloadSize = null;
+          let downloadSuccess = false;
+
           // Create a fresh page for each brief to avoid frame detachment
           let briefPage;
           let briefClient;
@@ -1214,6 +1220,9 @@ async function main() {
                       progress(`  Downloaded: ${filename} (${Math.round(buffer.byteLength / 1024)} KB)`);
                       totalBriefs++;
                       pdfUrl = tryUrl; // Mark as found
+                      downloadUrl = tryUrl;
+                      downloadSize = buffer.byteLength;
+                      downloadSuccess = true;
                       break;
                     } else {
                       debug(`  Not a PDF, preview: ${new TextDecoder().decode(buffer.slice(0, 200))}`);
@@ -1230,7 +1239,15 @@ async function main() {
                 // We found a PDF URL in network traffic
                 debug(`  Downloading from network-captured URL: ${pdfUrl}`);
                 const success = await downloadFile(briefPage, pdfUrl, filename);
-                if (success) totalBriefs++;
+                if (success) {
+                  totalBriefs++;
+                  downloadUrl = pdfUrl;
+                  downloadSuccess = true;
+                  try {
+                    const stat = fs.statSync(path.join(CONFIG.downloadDir, filename));
+                    downloadSize = stat.size;
+                  } catch (_) {}
+                }
               }
 
               // Close any modal that might be open
@@ -1242,6 +1259,20 @@ async function main() {
             // Clean up handlers
             briefClient.off('Network.requestWillBeSent', requestHandler);
             briefClient.off('Network.responseReceived', responseHandler);
+
+            // Record manifest entry
+            manifest.push({
+              caseNumber: caseInfo.caseNumber,
+              caseName: caseInfo.caseName || null,
+              docketId: brief.docketId || (briefIndex + 1),
+              description: brief.name,
+              type: brief.type || null,
+              subtype: brief.subtype || null,
+              filename: filename,
+              url: downloadUrl,
+              size: downloadSize,
+              success: downloadSuccess,
+            });
 
           } catch (error) {
             progress(`  ERROR downloading ${brief.name}: ${error.message}`);
@@ -1279,6 +1310,13 @@ async function main() {
           await casePage.close().catch(() => {});
         }
       }
+    }
+
+    // Write manifest JSON
+    if (manifest.length > 0) {
+      const manifestPath = path.join(CONFIG.downloadDir, 'manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+      progress(`\nManifest written to: ${manifestPath}`);
     }
 
     progress(`\n========================================`);
