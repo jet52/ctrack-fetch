@@ -116,3 +116,14 @@ node ctrack-fetch.js -c 20990001 -a        # All documents for a case
 node ctrack-fetch.js -v -o ~/briefs -d 7   # Combine options
 ```
 
+
+## Contributing
+
+On a fresh clone, activate the local pre-push sensitive-content check:
+
+```bash
+git config --local core.hooksPath .githooks
+```
+
+It scans commits being pushed for likely ND court dockets, confidential-case
+captions, and committed binaries. Bypass once with `git push --no-verify`.
