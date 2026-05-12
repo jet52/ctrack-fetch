@@ -125,6 +125,8 @@ const CONFIG = {
   timeout: 30000,
 };
 
+fs.mkdirSync(CONFIG.downloadDir, { recursive: true });
+
 /**
  * Build the cTrack calendar URL with proper date range
  */
