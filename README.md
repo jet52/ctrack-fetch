@@ -1,6 +1,6 @@
 # ctrack-fetch
 
-Downloads briefs and documents from the North Dakota Supreme Court public [cTrack portal](https://portal.ctrack.ndcourts.gov). Can download all briefs for cases on the upcoming calendar, target a specific case by number, or download all documents for a case.
+Downloads docket documents from the North Dakota Supreme Court public [cTrack portal](https://portal.ctrack.ndcourts.gov). By default it fetches the briefs and notices of appeal for cases on the upcoming calendar or for a specific case by number. It can also target other docket entries — published opinions (including corrected, amended, on-rehearing, and on-motion opinions) — or download every document on a case's docket.
 
 ## Requirements
 
@@ -85,6 +85,14 @@ node ctrack-fetch.js -c 20990002 -a
 
 This downloads every document with a viewable attachment (motions, notices, affidavits, etc.), not just briefs and notices of appeal. Service documents are always skipped.
 
+### Download only the opinion(s) for a case
+
+```
+node ctrack-fetch.js -c 20990002 -O
+```
+
+This downloads only published opinions, skipping briefs and everything else. A single docket may hold more than one opinion — the original plus any corrected, amended, on-rehearing, or on-motion opinions — and each is saved under a distinct name. `-O` overrides `-a`.
+
 ### npm scripts
 
 ```
@@ -104,6 +112,7 @@ npm run download:silent        # No console output
 | `-d, --days N` | Number of days to look ahead on calendar | 7 |
 | `-c, --case NUMBER` | Download briefs for a specific 8-digit case number | |
 | `-a, --all` | Download all documents, not just briefs/NOA | |
+| `-O, --opinions` | Download only opinions (incl. corrected/amended); overrides `-a` | |
 
 ### Examples
 
@@ -113,6 +122,7 @@ node ctrack-fetch.js -o ~/briefs           # Save to specific directory
 node ctrack-fetch.js -d 14                 # Look ahead 14 days
 node ctrack-fetch.js -c 20990001           # Specific case
 node ctrack-fetch.js -c 20990001 -a        # All documents for a case
+node ctrack-fetch.js -c 20990001 -O        # Only the opinion(s) for a case
 node ctrack-fetch.js -v -o ~/briefs -d 7   # Combine options
 ```
 
