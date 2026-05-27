@@ -20,6 +20,7 @@ function parseArgs() {
     days: 7,
     caseNumber: null,
     allDocs: false,
+    opinionsOnly: false,
     help: false,
   };
 
@@ -63,6 +64,8 @@ function parseArgs() {
       }
     } else if (arg === '-a' || arg === '--all') {
       options.allDocs = true;
+    } else if (arg === '-O' || arg === '--opinions') {
+      options.opinionsOnly = true;
     } else if (arg.startsWith('-')) {
       console.error(`Error: Unknown option: ${arg}`);
       console.error('Use --help to see available options');
@@ -90,6 +93,7 @@ Options:
   -d, --days N        Number of days to look ahead (default: 7)
   -c, --case NUMBER   Download briefs for a specific 8-digit case number
   -a, --all           Download all documents (not just briefs/NOA)
+  -O, --opinions      Download only opinions (incl. corrected/amended); overrides -a
 
 Examples:
   node ctrack-fetch.js                     # Download briefs for next 7 days
@@ -98,6 +102,7 @@ Examples:
   node ctrack-fetch.js -d 14               # Look ahead 14 days
   node ctrack-fetch.js -c 20990001         # Download briefs for specific case
   node ctrack-fetch.js -c 20990001 -a      # Download all documents for a case
+  node ctrack-fetch.js -c 20990001 -O      # Download only the opinion(s) for a case
   node ctrack-fetch.js -v -o ~/briefs -d 7 # Combine options
 `);
 }
@@ -122,6 +127,7 @@ const CONFIG = {
   days: parsedArgs.days,
   caseNumber: parsedArgs.caseNumber,
   allDocs: parsedArgs.allDocs,
+  opinionsOnly: parsedArgs.opinionsOnly,
   timeout: 30000,
 };
 
@@ -234,10 +240,31 @@ const BRIEF_TYPE_MAP = {
 };
 
 /**
- * Convert a brief name from the docket to our abbreviated format
+ * Convert a brief name from the docket to our abbreviated format.
+ * `subtype` is the docket's Subtype column; for opinions it is "Opinion",
+ * which is the reliable signal (the description may be a long correction note).
  */
-function abbreviateBriefType(briefName) {
+function abbreviateBriefType(briefName, subtype = '') {
   const normalized = briefName.toLowerCase().trim();
+  const subtypeNorm = (subtype || '').toLowerCase().trim();
+
+  // Opinions: keyed primarily on the Subtype column, with specific name
+  // patterns as a backstop. A docket may carry several (original plus
+  // corrected/amended/rehearing); distinct docketIds keep filenames unique.
+  const looksLikeOpinion =
+    subtypeNorm === 'opinion' ||
+    normalized === 'opinion - opinion' ||
+    /\bcorrected opinion\b/.test(normalized) ||
+    /\bamended opinion\b/.test(normalized) ||
+    /\bsubstituted? opinion\b/.test(normalized) ||
+    /\bopinion on rehearing\b/.test(normalized);
+  if (looksLikeOpinion) {
+    if (/correct/.test(normalized)) return 'Opinion-Corrected';
+    if (/amend|substitut/.test(normalized)) return 'Opinion-Amended';
+    if (/rehear/.test(normalized)) return 'Opinion-Rehearing';
+    if (/\bon motion\b/.test(normalized)) return 'Opinion-Motion';
+    return 'Opinion';
+  }
 
   // Check for exact matches first
   if (BRIEF_TYPE_MAP[normalized]) {
@@ -261,6 +288,11 @@ function abbreviateBriefType(briefName) {
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
+
+  // Cap length: some docket descriptions run to hundreds of characters
+  // (e.g. clerk correction notes), which otherwise produce filenames that
+  // exceed the filesystem limit and fail to write (ENAMETOOLONG).
+  abbrev = abbrev.substring(0, 60).replace(/-+$/, '');
 
   debug(`Unknown brief type "${briefName}" -> "${abbrev}"`);
   return abbrev;
@@ -303,10 +335,10 @@ function formatCaseTitleForFilename(caseTitle) {
  * Generate filename for a brief or document
  * Format: {caseNumber}_{docketId}_{docType}.pdf
  */
-function generateFilename(caseNumber, docketId, docType, index = null) {
+function generateFilename(caseNumber, docketId, docType, index = null, subtype = '') {
   const formattedCase = formatCaseNumber(caseNumber);
   const paddedDocketId = String(docketId).padStart(3, '0');
-  const abbrevType = abbreviateBriefType(docType);
+  const abbrevType = abbreviateBriefType(docType, subtype);
   const suffix = index !== null ? index : '';
 
   return `${formattedCase}_${paddedDocketId}_${abbrevType}${suffix}.pdf`;
@@ -841,7 +873,7 @@ async function main() {
         // Helper function to extract briefs from current page
         // rowOffset is the number of data rows on previous pages (for sequential numbering)
         const extractBriefsFromPage = async (rowOffset) => {
-          return await casePage.evaluate((allDocsMode, offset) => {
+          return await casePage.evaluate((allDocsMode, opinionsOnly, offset) => {
             const briefLinks = [];
 
             const rows = document.querySelectorAll('tr');
@@ -876,12 +908,20 @@ async function main() {
               const isBrief = typeText === 'brief';
               const isNoticeOfAppeal = descLower.startsWith('notice of appeal') ||
                                        descLower.startsWith('amended notice of appeal');
+              // Opinions are identified by the Subtype column being "Opinion".
+              // This catches the original (type "opinion") and any corrected /
+              // amended / rehearing opinions (type "correction" etc.).
+              const isOpinion = subtypeText.trim().toLowerCase() === 'opinion';
 
               // Find the View button
               const viewButton = viewCell?.querySelector('button') || row.querySelector('button.v-btn');
               if (!viewButton) continue;
 
-              if (allDocsMode || isBrief || isNoticeOfAppeal) {
+              const include = opinionsOnly
+                ? isOpinion
+                : (allDocsMode || isBrief || isNoticeOfAppeal);
+
+              if (include) {
                 // Build document name from description and subtype
                 let briefName = descText || subtypeText + ' Brief' || 'Unknown Brief';
 
@@ -896,7 +936,7 @@ async function main() {
             }
 
             return { entries: briefLinks, totalRows: dataRowIndex };
-          }, CONFIG.allDocs, rowOffset);
+          }, CONFIG.allDocs, CONFIG.opinionsOnly, rowOffset);
         };
 
         // Helper to check if there's a next page and click it
@@ -963,7 +1003,8 @@ async function main() {
         debug(`Documents: ${JSON.stringify(briefs, null, 2)}`);
 
         if (briefs.length === 0) {
-          progress(`  No ${CONFIG.allDocs ? 'documents' : 'briefs or notices'} found for case ${caseInfo.caseNumber}`);
+          const missingNoun = CONFIG.opinionsOnly ? 'opinions' : (CONFIG.allDocs ? 'documents' : 'briefs or notices');
+          progress(`  No ${missingNoun} found for case ${caseInfo.caseNumber}`);
           continue;
         }
 
@@ -972,7 +1013,7 @@ async function main() {
           const brief = briefs[briefIndex];
 
           // Generate unique filename
-          const key = `${caseInfo.caseNumber}_${brief.docketId || briefIndex}_${abbreviateBriefType(brief.name)}`;
+          const key = `${caseInfo.caseNumber}_${brief.docketId || briefIndex}_${abbreviateBriefType(brief.name, brief.subtype)}`;
           const count = (downloadedBriefs.get(key) || 0) + 1;
           downloadedBriefs.set(key, count);
 
@@ -980,7 +1021,8 @@ async function main() {
             caseInfo.caseNumber,
             brief.docketId || (briefIndex + 1),
             brief.name,
-            count > 1 ? count : null
+            count > 1 ? count : null,
+            brief.subtype
           );
 
           debug(`Document ${briefIndex + 1}/${briefs.length}: "${brief.name}" -> ${filename} (page ${brief.pageNum})`);
