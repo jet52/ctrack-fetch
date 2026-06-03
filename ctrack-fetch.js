@@ -66,8 +66,14 @@ function parseArgs() {
       options.allDocs = true;
     } else if (arg === '-O' || arg === '--opinions') {
       options.opinionsOnly = true;
+    } else if (/^\d{8}$/.test(arg)) {
+      options.caseNumber = arg;
     } else if (arg.startsWith('-')) {
       console.error(`Error: Unknown option: ${arg}`);
+      console.error('Use --help to see available options');
+      process.exit(1);
+    } else {
+      console.error(`Error: Unexpected argument: ${arg}`);
       console.error('Use --help to see available options');
       process.exit(1);
     }
@@ -101,6 +107,7 @@ Examples:
   node ctrack-fetch.js -o ~/briefs         # Save to specific directory
   node ctrack-fetch.js -d 14               # Look ahead 14 days
   node ctrack-fetch.js -c 20990001         # Download briefs for specific case
+  node ctrack-fetch.js 20990001            # Same — bare 8-digit case number
   node ctrack-fetch.js -c 20990001 -a      # Download all documents for a case
   node ctrack-fetch.js -c 20990001 -O      # Download only the opinion(s) for a case
   node ctrack-fetch.js -v -o ~/briefs -d 7 # Combine options
