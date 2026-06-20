@@ -59,7 +59,7 @@ cd ctrack-fetch
 npm install
 ```
 
-> `npm install` downloads Puppeteer and a bundled Chromium browser (~150 MB). This only needs to happen once.
+> ctrack-fetch has **no runtime dependencies** — it uses Node's built-in `fetch` to talk to the cTrack JSON APIs directly. `npm install` just sets up the lockfile; nothing is downloaded.
 
 ## Usage
 
@@ -83,7 +83,7 @@ node ctrack-fetch.js -c 20990002
 node ctrack-fetch.js -c 20990002 -a
 ```
 
-This downloads every document with a viewable attachment (motions, notices, affidavits, etc.), not just briefs and notices of appeal. Service documents are always skipped.
+This downloads every docket entry that has a downloadable document (motions, notices, affidavits, etc.), not just briefs and notices of appeal. Service documents are always skipped.
 
 ### Download only the opinion(s) for a case
 
@@ -97,7 +97,7 @@ This downloads only published opinions, skipping briefs and everything else. A s
 
 ```
 npm run download               # Normal run
-npm run download:debug         # Opens visible browser, verbose output
+npm run download:debug         # Verbose/debug output
 npm run download:silent        # No console output
 ```
 
@@ -113,6 +113,7 @@ npm run download:silent        # No console output
 | `-c, --case NUMBER` | Download briefs for a specific 8-digit case number | |
 | `-a, --all` | Download all documents, not just briefs/NOA | |
 | `-O, --opinions` | Download only opinions (incl. corrected/amended); overrides `-a` | |
+| `-t, --timeout N` | Per-request HTTP timeout in seconds (raise for very large PDFs on a slow day) | 90 |
 
 ### Examples
 
