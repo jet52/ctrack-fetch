@@ -25,6 +25,7 @@ function parseArgs() {
     caseNumber: null,
     allDocs: false,
     opinionsOnly: false,
+    docket: true,
     timeout: 90000,
     help: false,
   };
@@ -83,6 +84,10 @@ function parseArgs() {
       options.allDocs = true;
     } else if (arg === '-O' || arg === '--opinions') {
       options.opinionsOnly = true;
+    } else if (arg === '-D' || arg === '--docket') {
+      options.docket = true;
+    } else if (arg === '-N' || arg === '--no-docket') {
+      options.docket = false;
     } else if (/^\d{8}$/.test(arg)) {
       options.caseNumber = arg;
     } else if (arg.startsWith('-')) {
@@ -118,6 +123,10 @@ Options:
   -c, --case NUMBER   Download documents for a specific 8-digit case number
   -a, --all           Download all documents (not just briefs/NOA)
   -O, --opinions      Download only opinions (incl. corrected/amended); overrides -a
+  -D, --docket        Write the full docket register (every entry, with or
+                      without documents) to {case}_docket.json in the output dir
+                      (DEFAULT: on; flag kept for explicitness/compatibility)
+  -N, --no-docket     Do not write the docket register
   -t, --timeout N     Per-request HTTP timeout in seconds (default: 90)
 
 Examples:
@@ -129,6 +138,7 @@ Examples:
   node ctrack-fetch.js 20990001            # Same -- bare 8-digit case number
   node ctrack-fetch.js -c 20990001 -a      # Download all documents for a case
   node ctrack-fetch.js -c 20990001 -O      # Download only the opinion(s) for a case
+  node ctrack-fetch.js -c 20990001 -N      # Briefs only, skip the docket register
   node ctrack-fetch.js -v -o ~/briefs -d 7 # Combine options
 `);
 }
@@ -152,6 +162,7 @@ const CONFIG = {
   caseNumber: parsedArgs.caseNumber,
   allDocs: parsedArgs.allDocs,
   opinionsOnly: parsedArgs.opinionsOnly,
+  docket: parsedArgs.docket,
   timeout: parsedArgs.timeout,
 };
 
@@ -402,11 +413,33 @@ async function getDocketEntries(caseUuid) {
       type: h.docketEntryType || '',
       subtype: h.docketEntrySubType || '',
       description: h.docketEntryDescription || '',
+      filedDate: h.filedDate || null,
       documentCount: Number(h.documentCount) || 0,
       // newest-first index -> oldest-first docketId
       docketId: n - idx,
     };
   });
+}
+
+/**
+ * Write the full docket register for a case to {caseNumber}_docket.json:
+ * every entry, chronological (oldest first), with or without a document.
+ * Entries without documents matter -- dispositions ("Granted/Denied by..."),
+ * clerk refusal notices, and argument waivers are often register-only.
+ */
+function writeDocketRegister(caseNumber, caseName, entries) {
+  const register = {
+    caseNumber,
+    caseName: caseName || null,
+    fetchedAt: new Date().toISOString(),
+    entryCount: entries.length,
+    entries: [...entries]
+      .sort((a, b) => a.docketId - b.docketId)
+      .map(({ docketEntryUUID, ...rest }) => rest),
+  };
+  const registerPath = path.join(CONFIG.downloadDir, `${caseNumber}_docket.json`);
+  fs.writeFileSync(registerPath, JSON.stringify(register, null, 2) + '\n');
+  progress(`  Docket register written to: ${registerPath} (${entries.length} entries)`);
 }
 
 /**
@@ -566,6 +599,14 @@ async function processCase(caseInfo, downloadedBriefs, manifest) {
   } catch (e) {
     progress(`  ERROR fetching docket for ${caseNumber}: ${e.message}`);
     return 0;
+  }
+
+  if (CONFIG.docket) {
+    try {
+      writeDocketRegister(caseNumber, caseName, entries);
+    } catch (e) {
+      progress(`  ERROR writing docket register for ${caseNumber}: ${e.message}`);
+    }
   }
 
   const wanted = entries.filter((e) => e.documentCount >= 1 && shouldInclude(e));
