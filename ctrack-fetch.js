@@ -443,6 +443,25 @@ function writeDocketRegister(caseNumber, caseName, entries) {
 }
 
 /**
+ * Write the download manifest for a case to {caseNumber}_manifest.json: one
+ * record per document attempted, in docket order. Per-case rather than a
+ * single shared file so that back-to-back runs over several cases in the same
+ * output directory do not overwrite each other.
+ */
+function writeManifest(caseNumber, caseName, documents) {
+  const manifest = {
+    caseNumber,
+    caseName: caseName || null,
+    fetchedAt: new Date().toISOString(),
+    documentCount: documents.length,
+    documents,
+  };
+  const manifestPath = path.join(CONFIG.downloadDir, `${caseNumber}_manifest.json`);
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  progress(`  Manifest written to: ${manifestPath} (${documents.length} document(s))`);
+}
+
+/**
  * Decide whether a docket entry should be downloaded, given the current flags.
  * Mirrors the prior column-based classification (Type / Subtype / Description).
  */
@@ -572,10 +591,10 @@ async function getCalendarCases() {
 
 /**
  * Process one case: resolve it, enumerate its docket, and download the
- * matching documents. Appends to `manifest` and returns the number of
+ * matching documents. Writes the case's manifest and returns the number of
  * documents successfully downloaded.
  */
-async function processCase(caseInfo, downloadedBriefs, manifest) {
+async function processCase(caseInfo, downloadedBriefs) {
   const { caseNumber } = caseInfo;
   progress(`\nProcessing case ${caseNumber}${caseInfo.caseName ? ' - ' + caseInfo.caseName : ''}...`);
 
@@ -619,6 +638,7 @@ async function processCase(caseInfo, downloadedBriefs, manifest) {
   }
 
   let downloaded = 0;
+  const documents = [];
   for (const entry of wanted) {
     let links;
     try {
@@ -660,9 +680,7 @@ async function processCase(caseInfo, downloadedBriefs, manifest) {
         progress(`  ERROR downloading ${filename}: ${e.message}`);
       }
 
-      manifest.push({
-        caseNumber,
-        caseName,
+      documents.push({
         docketId: entry.docketId,
         description: entry.description,
         type: entry.type || null,
@@ -672,6 +690,14 @@ async function processCase(caseInfo, downloadedBriefs, manifest) {
         size: downloadSize,
         success,
       });
+    }
+  }
+
+  if (documents.length > 0) {
+    try {
+      writeManifest(caseNumber, caseName, documents);
+    } catch (e) {
+      progress(`  ERROR writing manifest for ${caseNumber}: ${e.message}`);
     }
   }
 
@@ -710,22 +736,15 @@ async function main() {
 
   // Track downloaded documents to handle duplicate filenames
   const downloadedBriefs = new Map();
-  const manifest = [];
   let totalBriefs = 0;
 
   for (const caseInfo of cases) {
     try {
-      totalBriefs += await processCase(caseInfo, downloadedBriefs, manifest);
+      totalBriefs += await processCase(caseInfo, downloadedBriefs);
     } catch (e) {
       progress(`  ERROR processing case ${caseInfo.caseNumber}: ${e.message}`);
       debug(`  Full error: ${e.stack}`);
     }
-  }
-
-  if (manifest.length > 0) {
-    const manifestPath = path.join(CONFIG.downloadDir, 'manifest.json');
-    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-    progress(`\nManifest written to: ${manifestPath}`);
   }
 
   progress(`\n========================================`);
