@@ -2,6 +2,19 @@
 
 Downloads docket documents from the North Dakota Supreme Court public [cTrack portal](https://portal.ctrack.ndcourts.gov). By default it fetches the briefs and notices of appeal for cases on the upcoming calendar or for a specific case by number. It can also target other docket entries — published opinions (including corrected, amended, on-rehearing, and on-motion opinions) — or download every document on a case's docket.
 
+## Not an Official Court Product
+
+This is an independent, open-source project published by an individual in a
+personal capacity, consistent with Rule 3.1 of the North Dakota Code of Judicial
+Conduct. It is not authorized, endorsed, or maintained by the North Dakota
+Supreme Court or the state court system.
+
+It reads only the portal's public, anonymous APIs — the same documents any
+visitor can retrieve through the web interface — at a polite request rate with
+retries rather than parallel hammering. It uses no credentials and provides no
+access to sealed, confidential, or otherwise non-public material. What you
+download is a copy; verify anything you rely on against the official docket.
+
 ## Requirements
 
 - [Node.js](https://nodejs.org/) v18 or later
