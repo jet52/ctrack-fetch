@@ -253,6 +253,15 @@ const BRIEF_TYPE_MAP = {
 };
 
 /**
+ * True when a (lower-cased, trimmed) docket Subtype names an opinion document:
+ * "opinion" (corrected/amended entries), "unanimous opinion", "split opinion".
+ * Not "dissent" or the disposition subtypes.
+ */
+function isOpinionSubtype(subtypeNorm) {
+  return subtypeNorm === 'opinion' || /\bopinion$/.test(subtypeNorm);
+}
+
+/**
  * Convert a brief name from the docket to our abbreviated format.
  * `subtype` is the docket's Subtype column; for opinions it is "Opinion",
  * which is the reliable signal (the description may be a long correction note).
@@ -265,7 +274,7 @@ function abbreviateBriefType(briefName, subtype = '') {
   // patterns as a backstop. A docket may carry several (original plus
   // corrected/amended/rehearing); distinct docketIds keep filenames unique.
   const looksLikeOpinion =
-    subtypeNorm === 'opinion' ||
+    isOpinionSubtype(subtypeNorm) ||
     normalized === 'opinion - opinion' ||
     /\bcorrected opinion\b/.test(normalized) ||
     /\bamended opinion\b/.test(normalized) ||
@@ -481,11 +490,13 @@ function shouldInclude(entry) {
   const isBrief = typeText === 'brief';
   const isNoticeOfAppeal = descLower.startsWith('notice of appeal') ||
                            descLower.startsWith('amended notice of appeal');
-  // Opinions are identified by the Subtype being "Opinion". This catches the
-  // original (type "Opinion") and any corrected/amended opinion (type
-  // "Correction"). Non-document opinion-related entries (dispositions,
-  // split-opinion holdings) carry a different subtype and are excluded.
-  const isOpinion = subtypeNorm === 'opinion';
+  // Opinions are identified by the Subtype column. The filed opinion is a
+  // type "Holding" entry whose subtype is "Unanimous Opinion" or "Split
+  // Opinion" (observed 2026-09-16; the bare "Opinion" subtype now appears
+  // only on corrected/amended opinions, type "Correction"). Register-only
+  // entries under the same subtypes ("Dissent", dispositions) carry no
+  // document and are dropped by the documentCount >= 1 gate.
+  const isOpinion = isOpinionSubtype(subtypeNorm);
 
   return CONFIG.opinionsOnly
     ? isOpinion

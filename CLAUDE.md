@@ -45,7 +45,7 @@ The `courtId` for the ND Supreme Court is the fixed UUID `68f021c4-6a44-4735-9a7
 
 ### Classification (API field mapping)
 
-The portal's docket table columns map to API fields: Type = `docketEntryType`, Subtype = `docketEntrySubType`, Description = `docketEntryDescription`. Opinions (including corrected/amended) are identified by `docketEntrySubType === "Opinion"`; non-document opinion entries (dispositions, split-opinion holdings) carry a different subtype and have `documentCount: null`, so requiring `documentCount >= 1` excludes them.
+The portal's docket table columns map to API fields: Type = `docketEntryType`, Subtype = `docketEntrySubType`, Description = `docketEntryDescription`. Opinions are identified by the Subtype (`isOpinionSubtype`): the filed opinion is a type `Holding` entry with subtype `Unanimous Opinion` or `Split Opinion` (observed 2026-09-16), and corrected/amended opinions are type `Correction` with subtype `Opinion`. Register-only entries (`Dissent`, `Disposition - Opinion`, `Notice`) either carry a different subtype or have `documentCount: null`, so requiring `documentCount >= 1` excludes them.
 
 ### Filename Convention
 
