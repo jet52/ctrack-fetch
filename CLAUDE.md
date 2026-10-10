@@ -49,7 +49,7 @@ The portal's docket table columns map to API fields: Type = `docketEntryType`, S
 
 ### Filename Convention
 
-`{caseNumber}_{docketId}_{briefType}[{index}].pdf` — e.g., `20260027_015_Resp-Br.pdf`. The `docketId` is a zero-padded sequential number (oldest entry = 001) derived from the entry's chronological position. To reproduce it, the docket is consumed newest-first (`filedDate,desc`) and `docketId = totalEntries - position + 1`. `generateFilename` strips path-illegal characters (e.g. the `/` in "and/or") from the abbreviation.
+`{caseNumber}_{docketId}_{briefType}[{index}].pdf` — e.g., `20990001_015_Resp-Br.pdf`. The `docketId` is a zero-padded sequential number (oldest entry = 001) derived from the entry's chronological position. To reproduce it, the docket is consumed newest-first (`filedDate,desc`) and `docketId = totalEntries - position + 1`. `generateFilename` strips path-illegal characters (e.g. the `/` in "and/or") from the abbreviation.
 
 ### Error Handling
 
