@@ -112,7 +112,7 @@ Downloads briefs for cases scheduled on the ND Supreme Court calendar,
 or documents for a specific case by case number. Talks directly to the
 cTrack JSON APIs over HTTP -- no browser required.
 
-Usage: node ctrack-fetch.js [options]
+Usage: ctrack-fetch [options]
 
 Options:
   -h, --help          Show this help message
@@ -130,16 +130,16 @@ Options:
   -t, --timeout N     Per-request HTTP timeout in seconds (default: 90)
 
 Examples:
-  node ctrack-fetch.js                     # Download briefs for next 7 days
-  node ctrack-fetch.js -v                  # With debug output
-  node ctrack-fetch.js -o ~/briefs         # Save to specific directory
-  node ctrack-fetch.js -d 14               # Look ahead 14 days
-  node ctrack-fetch.js -c 20990001         # Download briefs for specific case
-  node ctrack-fetch.js 20990001            # Same -- bare 8-digit case number
-  node ctrack-fetch.js -c 20990001 -a      # Download all documents for a case
-  node ctrack-fetch.js -c 20990001 -O      # Download only the opinion(s) for a case
-  node ctrack-fetch.js -c 20990001 -N      # Briefs only, skip the docket register
-  node ctrack-fetch.js -v -o ~/briefs -d 7 # Combine options
+  ctrack-fetch                     # Download briefs for next 7 days
+  ctrack-fetch -v                  # With debug output
+  ctrack-fetch -o ~/briefs         # Save to specific directory
+  ctrack-fetch -d 14               # Look ahead 14 days
+  ctrack-fetch -c 20990001         # Download briefs for specific case
+  ctrack-fetch 20990001            # Same -- bare 8-digit case number
+  ctrack-fetch -c 20990001 -a      # Download all documents for a case
+  ctrack-fetch -c 20990001 -O      # Download only the opinion(s) for a case
+  ctrack-fetch -c 20990001 -N      # Briefs only, skip the docket register
+  ctrack-fetch -v -o ~/briefs -d 7 # Combine options
 `);
 }
 
