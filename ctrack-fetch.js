@@ -118,10 +118,11 @@ Options:
   -h, --help          Show this help message
   -v, --verbose       Enable debug output
   -q, --quiet         Silent mode (no output)
-  -o, --output DIR    Output directory for downloaded PDFs (default: current directory)
+  -o, --output DIR    Output directory for downloaded files (default: current directory)
   -d, --days N        Number of days to look ahead (default: 7)
   -c, --case NUMBER   Download documents for a specific 8-digit case number
-  -a, --all           Download all documents (not just briefs/NOA)
+  -a, --all           Download all documents (not just briefs/NOA), including
+                      oral argument recordings (MP3)
   -O, --opinions      Download only opinions (incl. corrected/amended); overrides -a
   -D, --docket        Write the full docket register (every entry, with or
                       without documents) to {case}_docket.json in the output dir
@@ -525,8 +526,27 @@ async function getDocumentLinks(caseUuid, docketEntryUuid) {
 }
 
 /**
- * Download a single document (by its documentLinkUUID) to `filename`.
- * Validates the %PDF magic bytes before writing.
+ * Identify a downloaded document from its leading bytes. Returns the file
+ * extension ('pdf' or 'mp3'), or null for anything else (such as an HTML error
+ * page). Oral argument recordings are MP3s: an ID3 tag, or a bare MPEG Layer III
+ * frame header when the file has no tag.
+ */
+function detectFileType(buffer) {
+  if (buffer.length < 4) return null;
+  const [b0, b1, b2, b3] = buffer;
+  if (b0 === 0x25 && b1 === 0x50 && b2 === 0x44 && b3 === 0x46) return 'pdf'; // %PDF
+  if (b0 === 0x49 && b1 === 0x44 && b2 === 0x33) return 'mp3'; // ID3
+  const isMpegLayer3Frame = b0 === 0xff &&
+    (b1 & 0xe0) === 0xe0 && // frame sync
+    (b1 & 0x18) !== 0x08 && // version is not the reserved value
+    (b1 & 0x06) === 0x02; // Layer III
+  return isMpegLayer3Frame ? 'mp3' : null;
+}
+
+/**
+ * Download a single document (by its documentLinkUUID). `filename` is the
+ * default .pdf name; the extension is replaced to match the content. Validates
+ * the magic bytes before writing and returns the name actually written.
  */
 async function downloadDocument(caseUuid, documentLinkUuid, filename) {
   const url = `${CONFIG.apiBase}/courts/${CONFIG.courtId}/cms/case/${caseUuid}` +
@@ -540,16 +560,14 @@ async function downloadDocument(caseUuid, documentLinkUuid, filename) {
   }
 
   const buffer = Buffer.from(await res.arrayBuffer());
-  const isPdf = buffer.length >= 4 &&
-    buffer[0] === 0x25 && buffer[1] === 0x50 &&
-    buffer[2] === 0x44 && buffer[3] === 0x46; // %PDF
-  if (!isPdf) {
-    throw new Error(`response was not a PDF (first bytes: ${buffer.subarray(0, 8).toString('utf8')})`);
+  const ext = detectFileType(buffer);
+  if (!ext) {
+    throw new Error(`response was not a PDF or MP3 (first bytes: ${buffer.subarray(0, 8).toString('utf8')})`);
   }
 
-  const filePath = path.join(CONFIG.downloadDir, filename);
-  fs.writeFileSync(filePath, buffer);
-  return { url, size: buffer.length };
+  const savedName = filename.replace(/\.pdf$/, `.${ext}`);
+  fs.writeFileSync(path.join(CONFIG.downloadDir, savedName), buffer);
+  return { url, size: buffer.length, filename: savedName };
 }
 
 /**
@@ -669,7 +687,7 @@ async function processCase(caseInfo, downloadedBriefs) {
       const key = `${caseNumber}_${entry.docketId}_${abbreviateBriefType(entry.description, entry.subtype)}`;
       const count = (downloadedBriefs.get(key) || 0) + 1;
       downloadedBriefs.set(key, count);
-      const filename = generateFilename(
+      let filename = generateFilename(
         caseNumber,
         entry.docketId,
         entry.description,
@@ -682,6 +700,7 @@ async function processCase(caseInfo, downloadedBriefs) {
       let success = false;
       try {
         const result = await downloadDocument(resolved.uuid, link.documentLinkUUID, filename);
+        filename = result.filename;
         downloadUrl = result.url;
         downloadSize = result.size;
         success = true;

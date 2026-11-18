@@ -96,7 +96,7 @@ node ctrack-fetch.js -c 20990002
 node ctrack-fetch.js -c 20990002 -a
 ```
 
-This downloads every docket entry that has a downloadable document (motions, notices, affidavits, etc.), not just briefs and notices of appeal. Service documents are always skipped.
+This downloads every docket entry that has a downloadable document (motions, notices, affidavits, etc.), not just briefs and notices of appeal. An oral argument recording is saved as an `.mp3`; everything else is a `.pdf`. Service documents are always skipped.
 
 ### Download only the opinion(s) for a case
 
@@ -121,10 +121,10 @@ npm run download:silent        # No console output
 | `-h, --help` | Show help message | |
 | `-v, --verbose` | Enable debug output | |
 | `-q, --quiet` | Silent mode (no output) | |
-| `-o, --output DIR` | Output directory for downloaded PDFs | current directory |
+| `-o, --output DIR` | Output directory for downloaded files | current directory |
 | `-d, --days N` | Number of days to look ahead on calendar | 7 |
 | `-c, --case NUMBER` | Download briefs for a specific 8-digit case number | |
-| `-a, --all` | Download all documents, not just briefs/NOA | |
+| `-a, --all` | Download all documents, not just briefs/NOA, including oral argument recordings (MP3) | |
 | `-O, --opinions` | Download only opinions (incl. corrected/amended); overrides `-a` | |
 | `-t, --timeout N` | Per-request HTTP timeout in seconds (raise for very large PDFs on a slow day) | 90 |
 

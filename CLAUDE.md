@@ -41,7 +41,7 @@ The entire application is a single file: `ctrack-fetch.js` (~700 lines). Key sec
 - **PDF**: `/courts/{courtId}/cms/case/{caseUUID}/docketentrydocuments/{documentLinkUUID}` (note singular `case`)
 - **Calendar**: `/courts/cms/events?startDateFrom={ISO}&startDateTo={ISO}&courtID={courtId}` → `eventName` like `"20990338 - Doe v. Roe"`
 
-The `courtId` for the ND Supreme Court is the fixed UUID `68f021c4-6a44-4735-9a76-5360b2e8af13`. Downloaded PDFs are validated by checking for `%PDF` magic bytes.
+The `courtId` for the ND Supreme Court is the fixed UUID `68f021c4-6a44-4735-9a76-5360b2e8af13`. Downloads are validated by magic bytes (`detectFileType`): `%PDF` for documents, an ID3 tag or MPEG Layer III frame header for oral argument recordings (type `Oral Argument`, subtype `Recording`). Anything else is rejected.
 
 ### Classification (API field mapping)
 
@@ -49,7 +49,7 @@ The portal's docket table columns map to API fields: Type = `docketEntryType`, S
 
 ### Filename Convention
 
-`{caseNumber}_{docketId}_{briefType}[{index}].pdf` — e.g., `20990001_015_Resp-Br.pdf`. The `docketId` is a zero-padded sequential number (oldest entry = 001) derived from the entry's chronological position. To reproduce it, the docket is consumed newest-first (`filedDate,desc`) and `docketId = totalEntries - position + 1`. `generateFilename` strips path-illegal characters (e.g. the `/` in "and/or") from the abbreviation.
+`{caseNumber}_{docketId}_{briefType}[{index}].{pdf|mp3}` — e.g., `20990001_015_Resp-Br.pdf`. The extension follows the downloaded content. The `docketId` is a zero-padded sequential number (oldest entry = 001) derived from the entry's chronological position. To reproduce it, the docket is consumed newest-first (`filedDate,desc`) and `docketId = totalEntries - position + 1`. `generateFilename` strips path-illegal characters (e.g. the `/` in "and/or") from the abbreviation.
 
 ### Error Handling
 
