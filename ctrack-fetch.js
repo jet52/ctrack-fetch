@@ -267,9 +267,10 @@ function isOpinionSubtype(subtypeNorm) {
  * `subtype` is the docket's Subtype column; for opinions it is "Opinion",
  * which is the reliable signal (the description may be a long correction note).
  */
-function abbreviateBriefType(briefName, subtype = '') {
+function abbreviateBriefType(briefName, subtype = '', type = '') {
   const normalized = briefName.toLowerCase().trim();
   const subtypeNorm = (subtype || '').toLowerCase().trim();
+  const typeNorm = (type || '').toLowerCase().trim();
 
   // Opinions: keyed primarily on the Subtype column, with specific name
   // patterns as a backstop. A docket may carry several (original plus
@@ -289,8 +290,24 @@ function abbreviateBriefType(briefName, subtype = '') {
     return 'Opinion';
   }
 
+  // Each map code applies only to the docket entry type it names: brief codes
+  // ("...Br") to type Brief -- the same test shouldInclude() uses to pick
+  // briefs -- and notice-of-appeal codes to type Notice. Descriptions of other
+  // entries often name a brief without being one: "Motion for Extension of
+  // Time to File Appellant Brief" (Motion), "Appellant Brief filed, corrections
+  // needed" (Correction), "Action by Clerk - ... Appellant's Brief granted".
+  // Matching those saved them as {case}_{id}_Apt-Br.pdf, which reads as a
+  // second appellant brief. A caller that passes no type keeps the old
+  // behavior.
+  const codeFitsType = (abbrev) => {
+    if (!typeNorm) return true;
+    if (/Br$/.test(abbrev)) return typeNorm === 'brief';
+    if (/Notice-of-Appeal$/.test(abbrev)) return typeNorm === 'notice';
+    return true;
+  };
+
   // Check for exact matches first
-  if (BRIEF_TYPE_MAP[normalized]) {
+  if (BRIEF_TYPE_MAP[normalized] && codeFitsType(BRIEF_TYPE_MAP[normalized])) {
     return BRIEF_TYPE_MAP[normalized];
   }
 
@@ -298,7 +315,7 @@ function abbreviateBriefType(briefName, subtype = '') {
   const sortedEntries = Object.entries(BRIEF_TYPE_MAP)
     .sort((a, b) => b[0].length - a[0].length);
   for (const [pattern, abbrev] of sortedEntries) {
-    if (normalized.includes(pattern)) {
+    if (normalized.includes(pattern) && codeFitsType(abbrev)) {
       return abbrev;
     }
   }
@@ -334,13 +351,13 @@ function formatCaseNumber(caseNum) {
  * Generate filename for a brief or document
  * Format: {caseNumber}_{docketId}_{docType}.pdf
  */
-function generateFilename(caseNumber, docketId, docType, index = null, subtype = '') {
+function generateFilename(caseNumber, docketId, docType, index = null, subtype = '', type = '') {
   const formattedCase = formatCaseNumber(caseNumber);
   const paddedDocketId = String(docketId).padStart(3, '0');
   // Strip characters that are illegal in a filename. Free-form docket
   // descriptions can contain path separators (e.g. "and/or") and other
   // unsafe characters that would otherwise break the write.
-  const abbrevType = abbreviateBriefType(docType, subtype)
+  const abbrevType = abbreviateBriefType(docType, subtype, type)
     .replace(/[\/\\:*?"<>|\x00-\x1f]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
@@ -684,7 +701,7 @@ async function processCase(caseInfo, downloadedBriefs) {
     for (const link of links) {
       // Build a unique filename; multiple documents in one entry (or repeated
       // type+docketId) get a numeric suffix.
-      const key = `${caseNumber}_${entry.docketId}_${abbreviateBriefType(entry.description, entry.subtype)}`;
+      const key = `${caseNumber}_${entry.docketId}_${abbreviateBriefType(entry.description, entry.subtype, entry.type)}`;
       const count = (downloadedBriefs.get(key) || 0) + 1;
       downloadedBriefs.set(key, count);
       let filename = generateFilename(
@@ -692,7 +709,8 @@ async function processCase(caseInfo, downloadedBriefs) {
         entry.docketId,
         entry.description,
         count > 1 ? count : null,
-        entry.subtype
+        entry.subtype,
+        entry.type
       );
 
       let downloadUrl = null;
@@ -783,9 +801,14 @@ async function main() {
   progress(`Files saved to: ${CONFIG.downloadDir}`);
 }
 
-// Run the script
-main().catch((e) => {
-  progress(`FATAL ERROR: ${e.message}`);
-  debug(`Stack trace: ${e.stack}`);
-  process.exitCode = 1;
-});
+// Run the script when executed directly (including via the npm bin
+// symlink); export the pure helpers so tests can require this file.
+if (require.main === module) {
+  main().catch((e) => {
+    progress(`FATAL ERROR: ${e.message}`);
+    debug(`Stack trace: ${e.stack}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { abbreviateBriefType, generateFilename, shouldInclude };

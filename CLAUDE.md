@@ -16,6 +16,7 @@ npm run download               # Normal run with timestamp logging
 npm run download:debug         # Verbose/debug output (-v)
 npm run download:silent        # No console output (-q)
 node ctrack-fetch.js [options] # Direct execution
+npm test                       # node:test suite in test/ (filename abbreviations)
 ```
 
 Key flags: `-v` verbose, `-q` quiet, `-o DIR` output dir, `-d N` days lookahead (default 7), `-c NUMBER` specific 8-digit case number, `-a` download all documents (not just briefs/NOA), `-O` opinions only, `-t N` per-request HTTP timeout in seconds (default 90).
@@ -25,7 +26,7 @@ Key flags: `-v` verbose, `-q` quiet, `-o DIR` output dir, `-d N` days lookahead 
 The entire application is a single file: `ctrack-fetch.js` (~700 lines). Key sections in order:
 
 1. **CLI argument parsing** - custom arg parser, no external CLI library
-2. **`BRIEF_TYPE_MAP` / `abbreviateBriefType`** - maps docket entry descriptions to abbreviated brief type codes (e.g., `Apt-Br`, `Ape-Br`); opinions keyed on the Subtype
+2. **`BRIEF_TYPE_MAP` / `abbreviateBriefType`** - maps docket entry descriptions to abbreviated brief type codes (e.g., `Apt-Br`, `Ape-Br`); opinions keyed on the Subtype. Brief codes apply only to entries of type `Brief` (the same test `shouldInclude` uses): motions, clerk `Correction` notes, and clerk actions often *mention* a brief ("Motion for Extension of Time to File Appellant Brief") and get a descriptive fallback name instead
 3. **HTTP layer** - `httpFetch` (per-request timeout via `AbortSignal.timeout`, retries on network errors and 5xx/429) and `getJson`
 4. **`resolveCase`** - case number → `caseInstanceUUID` via the `/courts/cms/cases` search API
 5. **`getDocketEntries`** - one call to `/cms/cases/{uuid}/docketentries?size=500&sort=...filedDate,desc`; assigns each entry a `docketId` (oldest = 1)
